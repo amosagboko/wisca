@@ -896,7 +896,8 @@ Admin → **Control Panel** → update name/logo → save. Refresh the page.
 
 - Max **2 MB**  
 - Use JPG, PNG, or WebP  
-- Ask Admin to confirm the public storage link is enabled on the server
+- Ask Admin to confirm the public storage link is enabled on the server (`php artisan storage:link`)
+- On some shared hosts, PHP’s **fileinfo** extension is disabled. WISCA falls back automatically, but enabling `extension=fileinfo` in the host’s PHP settings is still recommended for best MIME detection.
 
 ### “Wrong pass mark for exams”
 
@@ -975,7 +976,16 @@ When the server cron runs Laravel’s scheduler (`php artisan schedule:work` or 
 | 1st of month 06:45 | Monthly KPIs |
 | Daily 07:00 | Termly KPIs |
 
-### 17.4 Related documents in this repo
+### 17.4 File uploads on shared hosting
+
+Logo, hero image, passport photo, and lesson-plan uploads use Laravel’s public disk. Ensure:
+
+1. `php artisan storage:link` has been run so `public/storage` points at `storage/app/public`.
+2. The web server can write to `storage/` and `bootstrap/cache/`.
+
+If uploads fail with **Class "finfo" not found**, the host has disabled PHP’s **fileinfo** extension. WISCA ships a fallback (extension-based MIME detection). Deploy the latest code, then run `php artisan config:clear`. Ask the host to enable **fileinfo** when possible.
+
+### 17.5 Related documents in this repo
 
 | File | Purpose |
 |---|---|
