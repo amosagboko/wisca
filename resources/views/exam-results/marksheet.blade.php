@@ -2,7 +2,7 @@
     <x-portal.page-intro
         eyebrow="Termly Broad Sheet · AE-02"
         title="Enter term exam scores"
-        :meta="($term->name).' · '.$session->name.'. Leave a score blank if the learner has no result — that sitting still counts in the enrolled denominator.'"
+        :meta="($term->name).' · '.$session->name.'. Leave a score blank if the learner has no result — that sitting still counts in the enrolled denominator. HOD verifies a complete sitting; AE-02 still uses the scores.'"
     />
 
     @if ($assignments->isEmpty())
@@ -23,9 +23,19 @@
         </form>
 
         @if ($assignment && $sitting)
+            @if (($sitting['review_status'] ?? null) === 'rejected' && ! empty($sitting['rejection_reason']))
+                <div class="portal-enter mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                    Returned by HOD: {{ $sitting['rejection_reason'] }}
+                </div>
+            @endif
+            @if (! empty($sitting['locked']))
+                <div class="portal-enter mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                    HOD verified this marksheet. Ask them to return it before scores can be changed.
+                </div>
+            @endif
             <x-portal.panel
                 :title="$assignment->schoolClass->name.' · '.$assignment->subject->name"
-                :subtitle="$sitting['passed'].' passed of '.$sitting['enrolled'].' enrolled · '.$sitting['recorded'].' scores entered · pass mark '.(int) $sitting['pass_mark'].'%'"
+                :subtitle="$sitting['passed'].' passed of '.$sitting['enrolled'].' enrolled · '.$sitting['recorded'].' scores entered · pass mark '.(int) $sitting['pass_mark'].'% · '.($sitting['review_status'] ?? 'incomplete')"
             >
                 @if ($sitting['enrolled'] === 0)
                     <p class="text-sm text-slate-500">
@@ -72,6 +82,7 @@
                                                     value="{{ $score }}"
                                                     class="block w-28 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                                                     placeholder="—"
+                                                    @disabled(! empty($sitting['locked']))
                                                 >
                                             </td>
                                             <td class="px-5 py-3">
@@ -92,7 +103,9 @@
                         <x-input-error :messages="$errors->get('assignment')" class="mt-2" />
 
                         <div class="flex flex-wrap items-center gap-3 pt-2">
-                            <x-primary-button>Save marksheet</x-primary-button>
+                            @unless (! empty($sitting['locked']))
+                                <x-primary-button>Save marksheet</x-primary-button>
+                            @endunless
                             <a href="{{ route('exam-results.index') }}" class="inline-flex items-center rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-slate-700 transition hover:bg-slate-50">Back</a>
                         </div>
                     </form>

@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Term extends Model
 {
     protected $fillable = [
-        'academic_session_id', 'name', 'start_date', 'end_date', 'status',
+        'academic_session_id', 'sequence', 'name', 'start_date', 'end_date', 'status', 'is_current',
     ];
 
     protected function casts(): array
@@ -17,6 +17,7 @@ class Term extends Model
         return [
             'start_date' => 'date',
             'end_date' => 'date',
+            'is_current' => 'boolean',
         ];
     }
 
@@ -28,12 +29,8 @@ class Term extends Model
     public static function currentForSession(int $sessionId): ?self
     {
         return static::where('academic_session_id', $sessionId)
-            ->where('status', 'active')
-            ->orderByDesc('start_date')
-            ->first()
-            ?? static::where('academic_session_id', $sessionId)
-                ->orderByDesc('start_date')
-                ->first();
+            ->where('is_current', true)
+            ->first();
     }
 
     public function schemeWeekNumber(int $maxWeek = 1): int

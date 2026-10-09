@@ -7,6 +7,7 @@ use App\Models\AtRiskLearner;
 use App\Models\InterventionPlan;
 use App\Models\Term;
 use App\Services\AtRiskCalculationService;
+use App\Services\HodScope;
 use App\Support\AtRiskCriteria;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -19,13 +20,17 @@ class InterventionPlanController extends Controller
     {
         $this->assertCanManage($atRiskLearner);
 
+        $record = $atRiskLearner->load(['learner', 'schoolClass']);
+
         return view('at-risk.plan-form', [
-            'record' => $atRiskLearner->load(['learner', 'schoolClass']),
+            'record' => $record,
             'plan' => new InterventionPlan([
                 'plan_type' => AtRiskCriteria::TIER_2,
                 'status' => 'active',
                 'start_date' => now()->toDateString(),
                 'review_date' => now()->addWeeks(4)->toDateString(),
+                'objectives' => $record->suggestedPlanObjectives(),
+                'strategies' => $record->suggestedPlanStrategies(),
             ]),
         ]);
     }
@@ -102,6 +107,11 @@ class InterventionPlanController extends Controller
     {
         $user = auth()->user();
         abort_unless($user->canManageInterventionPlans(), 403);
+        $record->loadMissing('learner');
         abort_unless((int) $record->learner?->school_id === (int) $user->school_id, 403);
+
+        if ($user->isHoD() && ! $user->isHoS() && ! $user->isAdmin()) {
+            abort_unless(app(HodScope::class)->canReviewClass($user, (int) $record->school_class_id), 403);
+        }
     }
 }

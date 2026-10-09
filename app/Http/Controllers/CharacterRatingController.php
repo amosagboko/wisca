@@ -19,8 +19,8 @@ class CharacterRatingController extends Controller
     {
         $user = auth()->user();
         abort_unless(
-            $user->isAdmin() || $user->isHoS() || $user->isHoD()
-                || $user->isTeacher() || $user->hasRole('student_life_coordinator'),
+            $user->isAdmin() || $user->isLeadership() || $user->isHoD()
+                || $user->isTeacher() || $user->isChaplain() || $user->hasRole('student_life_coordinator'),
             403
         );
 
@@ -61,8 +61,8 @@ class CharacterRatingController extends Controller
     {
         $user = auth()->user();
         abort_unless(
-            $user->isAdmin() || $user->isHoS() || $user->isHoD()
-                || $user->isTeacher() || $user->hasRole('student_life_coordinator'),
+            $user->isAdmin() || $user->isLeadership() || $user->isHoD()
+                || $user->isTeacher() || $user->isChaplain() || $user->hasRole('student_life_coordinator'),
             403
         );
 
@@ -96,8 +96,8 @@ class CharacterRatingController extends Controller
     {
         $user = auth()->user();
         abort_unless(
-            $user->isAdmin() || $user->isHoS() || $user->isHoD()
-                || $user->isTeacher() || $user->hasRole('student_life_coordinator'),
+            $user->isAdmin() || $user->isLeadership() || $user->isHoD()
+                || $user->isTeacher() || $user->isChaplain() || $user->hasRole('student_life_coordinator'),
             403
         );
 

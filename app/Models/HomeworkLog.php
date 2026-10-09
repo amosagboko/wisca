@@ -10,10 +10,15 @@ class HomeworkLog extends Model
 {
     use SoftDeletes;
 
+    protected $attributes = [
+        'status' => 'submitted',
+    ];
+
     protected $fillable = [
         'teacher_id', 'school_class_id', 'subject_id',
         'academic_session_id', 'term_id', 'title',
         'given_date', 'due_date', 'given_count', 'completed_on_time_count', 'notes',
+        'status', 'verified_by', 'verified_at', 'rejection_reason',
     ];
 
     protected function casts(): array
@@ -21,6 +26,7 @@ class HomeworkLog extends Model
         return [
             'given_date' => 'date',
             'due_date' => 'date',
+            'verified_at' => 'datetime',
         ];
     }
 
@@ -47,6 +53,31 @@ class HomeworkLog extends Model
     public function term(): BelongsTo
     {
         return $this->belongsTo(Term::class);
+    }
+
+    public function verifier(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'verified_by');
+    }
+
+    public function isSubmitted(): bool
+    {
+        return $this->status === 'submitted';
+    }
+
+    public function isVerified(): bool
+    {
+        return $this->status === 'verified';
+    }
+
+    public function isRejected(): bool
+    {
+        return $this->status === 'rejected';
+    }
+
+    public function isEditableByTeacher(): bool
+    {
+        return ! $this->isVerified();
     }
 
     public function completionRate(): float

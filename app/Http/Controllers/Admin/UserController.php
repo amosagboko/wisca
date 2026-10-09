@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Models\Department;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -15,7 +16,7 @@ class UserController extends AdminController
     {
         $users = User::where('school_id', $this->schoolId())
             ->whereDoesntHave('roles', fn ($q) => $q->where('name', 'admin'))
-            ->with('roles')
+            ->with(['roles', 'department'])
             ->orderBy('name')
             ->get();
 
@@ -30,6 +31,7 @@ class UserController extends AdminController
         return view('admin.users.form', [
             'user' => new User(['status' => 'active']),
             'roles' => $this->assignableRoles(),
+            'departments' => $this->schoolDepartments(),
         ]);
     }
 
@@ -39,6 +41,7 @@ class UserController extends AdminController
 
         $user = User::create([
             'school_id' => $this->schoolId(),
+            'department_id' => $this->departmentIdForRole($validated['role'], $validated['department_id'] ?? null),
             'name' => $validated['name'],
             'email' => $validated['email'],
             'phone' => $validated['phone'] ?? null,
@@ -62,6 +65,7 @@ class UserController extends AdminController
         return view('admin.users.form', [
             'user' => $user->load('roles'),
             'roles' => $this->assignableRoles(),
+            'departments' => $this->schoolDepartments(),
         ]);
     }
 
@@ -76,6 +80,7 @@ class UserController extends AdminController
             'email' => $validated['email'],
             'phone' => $validated['phone'] ?? null,
             'status' => $validated['status'],
+            'department_id' => $this->departmentIdForRole($validated['role'], $validated['department_id'] ?? null),
         ]);
 
         if (! empty($validated['password'])) {
@@ -126,7 +131,33 @@ class UserController extends AdminController
             'password' => [$user ? 'nullable' : 'required', 'string', 'min:8', 'confirmed'],
             'status' => ['required', 'in:active,inactive'],
             'role' => ['required', 'string', Rule::in(array_keys($this->assignableRoles()))],
+            'department_id' => [
+                $request->input('role') === 'head_of_department' ? 'required' : 'nullable',
+                Rule::exists('departments', 'id')->where(fn ($query) => $query
+                    ->where('school_id', $this->schoolId())
+                    ->where('status', 'active')),
+            ],
         ]);
+    }
+
+    protected function departmentIdForRole(string $role, mixed $departmentId): ?int
+    {
+        if ($role !== 'head_of_department') {
+            return null;
+        }
+
+        return $departmentId ? (int) $departmentId : null;
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, Department>
+     */
+    protected function schoolDepartments()
+    {
+        return Department::where('school_id', $this->schoolId())
+            ->where('status', 'active')
+            ->orderBy('name')
+            ->get();
     }
 
     protected function ensureSchoolUser(User $user): void

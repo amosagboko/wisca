@@ -14,8 +14,8 @@ class LandingContent
     public static function defaults(): array
     {
         return [
-            'meta_title_suffix' => 'Strategy Monitor',
-            'meta_description' => 'Strategy monitor — track Academic Excellence, Christocentric Education, and Digital Innovation for the Board.',
+            'meta_title_suffix' => 'WISCA PEMS',
+            'meta_description' => 'Track Academic Excellence, Christcentric Education, and Digital Innovation for the Board.',
             'nav_sign_in_label' => 'Sign in',
             'hero_headline' => 'Strategy made visible for the Board.',
             'hero_supporting' => 'Twenty-one measures across learning, faith, and digital practice — drawn from live school evidence, not end-of-term guesswork.',
@@ -47,7 +47,7 @@ class LandingContent
             'invite_title' => 'Built for the people who keep the numbers honest.',
             'invite_body' => 'Teachers, officers, coordinators, and leaders each see the work that belongs to them — then the Board sees the whole.',
             'invite_cta' => 'Sign in',
-            'footer_tagline' => 'Strategy Monitor · Confidential school use',
+            'footer_tagline' => 'WISCA PEMS · Confidential school use',
             'footer_copyright_owner' => '',
             'show_pillars_section' => true,
             'show_invite_section' => true,
@@ -82,6 +82,27 @@ class LandingContent
         $merged['show_logo_in_hero'] = filter_var($merged['show_logo_in_hero'], FILTER_VALIDATE_BOOLEAN);
         $merged['show_pillars_section'] = filter_var($merged['show_pillars_section'], FILTER_VALIDATE_BOOLEAN);
         $merged['show_invite_section'] = filter_var($merged['show_invite_section'], FILTER_VALIDATE_BOOLEAN);
+
+        return self::replaceLegacyBrand($merged);
+    }
+
+    /**
+     * @param  array<string, mixed>  $merged
+     * @return array<string, mixed>
+     */
+    protected static function replaceLegacyBrand(array $merged): array
+    {
+        if (($merged['meta_title_suffix'] ?? '') === 'Strategy Monitor') {
+            $merged['meta_title_suffix'] = 'WISCA PEMS';
+        }
+
+        if (($merged['footer_tagline'] ?? '') === 'Strategy Monitor · Confidential school use') {
+            $merged['footer_tagline'] = 'WISCA PEMS · Confidential school use';
+        }
+
+        if (str_starts_with((string) ($merged['meta_description'] ?? ''), 'Strategy monitor')) {
+            $merged['meta_description'] = self::defaults()['meta_description'];
+        }
 
         return $merged;
     }

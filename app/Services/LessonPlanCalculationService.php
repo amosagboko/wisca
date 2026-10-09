@@ -7,6 +7,7 @@ use App\Models\Kpi;
 use App\Models\KpiPeriodicData;
 use App\Models\LessonPlan;
 use App\Models\SchemeOfWork;
+use App\Models\School;
 use App\Models\Term;
 use App\Models\Topic;
 use Carbon\Carbon;
@@ -15,19 +16,37 @@ class LessonPlanCalculationService
 {
     public function __construct(
         protected KpiStatusEvaluator $evaluator,
+        protected AcademicReportingPeriod $periods,
+        protected PlanningPolicy $policy,
     ) {}
 
     public function dueAtForTopic(Topic $topic): Carbon
     {
-        $topic->loadMissing('schemeOfWork.term');
+        $topic->loadMissing('schemeOfWork.term.academicSession.school');
 
         $term = $topic->schemeOfWork?->term;
 
         if (! $term) {
-            return now()->startOfWeek(Carbon::MONDAY);
+            return now()->endOfDay();
         }
 
-        return $term->lessonPlanDueAt($topic->week_number);
+        return $this->dueAtForWeek(
+            $term,
+            (int) $topic->week_number,
+            $topic->schemeOfWork?->academicSession?->school,
+        );
+    }
+
+    public function dueAtForWeek(Term $term, int $weekNumber, ?School $school = null): Carbon
+    {
+        $term->loadMissing('academicSession.school');
+        $school ??= $term->academicSession?->school;
+
+        return $this->periods->dueAtInWeek(
+            $term,
+            $weekNumber,
+            $this->policy->lessonPlanDueWeekday($school),
+        );
     }
 
     public function recalculateForSession(AcademicSession $session, ?Term $term = null): ?KpiPeriodicData
@@ -67,10 +86,12 @@ class LessonPlanCalculationService
 
         $rate = round($approvedOnTime / $required, 4);
         $achievement = $this->evaluator->achievementRate($rate, (float) $kpi->default_target);
+        $dueAt = $this->dueAtForWeek($term, $weekNumber, $session->school);
 
         return KpiPeriodicData::updateOrCreate(
             [
                 'kpi_id' => $kpi->id,
+                'measure_key' => null,
                 'academic_session_id' => $session->id,
                 'term_id' => $term->id,
                 'school_class_id' => null,
@@ -81,13 +102,15 @@ class LessonPlanCalculationService
                 'actual_value' => $rate,
                 'achievement_rate' => $achievement,
                 'status' => $this->evaluator->kpiStatus($achievement ?? 0),
-                'period_start' => $term->lessonPlanDueAt($weekNumber)->toDateString(),
-                'period_end' => $term->lessonPlanDueAt($weekNumber)->copy()->addDays(6)->toDateString(),
+                'period_start' => $term->instructionalWeekStart($weekNumber)->toDateString(),
+                'period_end' => $term->instructionalWeekEnd($weekNumber)->toDateString(),
                 'metadata' => [
                     'week_number' => $weekNumber,
                     'required' => $required,
                     'approved_on_time' => $approvedOnTime,
                     'approved_total' => $weekTopics->filter(fn (Topic $topic) => $topic->hasApprovedLessonPlan())->count(),
+                    'due_weekday' => $this->policy->lessonPlanDueWeekdayName($session->school),
+                    'due_at' => $dueAt->toDateTimeString(),
                 ],
             ]
         );

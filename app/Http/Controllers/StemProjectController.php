@@ -159,9 +159,10 @@ class StemProjectController extends Controller
     private function canAccess($user): bool
     {
         return $user->isAdmin()
-            || $user->isHoS()
+            || $user->isLeadership()
             || $user->isHoD()
             || $user->isTeacher()
+            || $user->isIctCoordinator()
             || $user->isStemCoordinator();
     }
 
@@ -170,7 +171,7 @@ class StemProjectController extends Controller
      */
     private function accessibleClassIds($user, int $sessionId): array
     {
-        if ($user->isAdmin() || $user->isHoS() || $user->isHoD() || $user->isStemCoordinator()) {
+        if ($user->isAdmin() || $user->isLeadership() || $user->isHoD() || $user->isIctCoordinator() || $user->isStemCoordinator()) {
             return SchoolClass::where('school_id', $user->school_id)->pluck('id')->all();
         }
 

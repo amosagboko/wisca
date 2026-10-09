@@ -8,15 +8,21 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ExamResult extends Model
 {
+    protected $attributes = [
+        'status' => 'submitted',
+    ];
+
     protected $fillable = [
         'learner_id', 'subject_id', 'school_class_id', 'academic_session_id',
         'term_id', 'recorded_by', 'assessment_key', 'assessment_name', 'score',
+        'status', 'verified_by', 'verified_at', 'rejection_reason',
     ];
 
     protected function casts(): array
     {
         return [
             'score' => 'float',
+            'verified_at' => 'datetime',
         ];
     }
 
@@ -38,6 +44,26 @@ class ExamResult extends Model
     public function recorder(): BelongsTo
     {
         return $this->belongsTo(User::class, 'recorded_by');
+    }
+
+    public function verifier(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'verified_by');
+    }
+
+    public function isSubmitted(): bool
+    {
+        return $this->status === 'submitted';
+    }
+
+    public function isVerified(): bool
+    {
+        return $this->status === 'verified';
+    }
+
+    public function isRejected(): bool
+    {
+        return $this->status === 'rejected';
     }
 
     public function academicSession(): BelongsTo

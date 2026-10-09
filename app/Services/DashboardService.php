@@ -35,7 +35,7 @@ class DashboardService
             : 0;
 
         return [
-            'school_name' => $pillars->first()?->school?->name ?? 'WISCA',
+            'school_name' => $pillars->first()?->school?->name ?? 'WISCA PEMS',
             'pillars' => $pillarSummaries,
             'totals' => [
                 'total_kpis' => $pillarSummaries->sum('total_kpis'),

@@ -29,7 +29,7 @@ class LandingController extends Controller
 
         return view('landing', [
             'school' => $school,
-            'schoolName' => $school?->name ?? config('app.name', 'WISCA'),
+            'schoolName' => $school?->name ?? config('app.name', 'WISCA PEMS'),
             'logoUrl' => $school?->logoUrl(),
             'heroUrl' => $school?->landingHeroUrl() ?? asset('images/landing-hero.jpg'),
             'landing' => $landing,

@@ -14,16 +14,19 @@ use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Admin\GuardianController;
 use App\Http\Controllers\Admin\PartnershipCharterController;
 use App\Http\Controllers\Admin\KpiController;
+use App\Http\Controllers\Admin\DepartmentController;
 use App\Http\Controllers\Admin\SchoolClassController;
 use App\Http\Controllers\Admin\SubjectController;
 use App\Http\Controllers\Admin\TeacherAssignmentController;
 use App\Http\Controllers\Admin\TermController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\AcademicPeriodController;
 use App\Http\Controllers\AttendanceLogController;
 use App\Http\Controllers\AtRiskLearnerController;
 use App\Http\Controllers\BullyingCaseController;
 use App\Http\Controllers\ChapelController;
+use App\Http\Controllers\ComingSoonActivityController;
 use App\Http\Controllers\CharacterRatingController;
 use App\Http\Controllers\Admin\CharacterDomainController;
 use App\Http\Controllers\Admin\ControlPanelController;
@@ -36,6 +39,7 @@ use App\Http\Controllers\ExamResultController;
 use App\Http\Controllers\HomeworkLogController;
 use App\Http\Controllers\InterventionPlanController;
 use App\Http\Controllers\LandingController;
+use App\Http\Controllers\LeadershipWeekReviewController;
 use App\Http\Controllers\LearnerController;
 use App\Http\Controllers\LessonPlanController;
 use App\Http\Controllers\LmsUsageController;
@@ -46,8 +50,12 @@ use App\Http\Controllers\ReadingAssessmentController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ServiceLogController;
 use App\Http\Controllers\StemProjectController;
+use App\Http\Controllers\CurriculumCoverageReportController;
+use App\Http\Controllers\PlanningPolicyController;
+use App\Http\Controllers\SchemeOfWorkController;
 use App\Http\Controllers\ScriptureAssessmentController;
 use App\Http\Controllers\StatusThresholdController;
+use App\Http\Controllers\TopicCatchUpPlanController;
 use App\Http\Controllers\TopicCoverageLogController;
 use Illuminate\Support\Facades\Route;
 
@@ -63,9 +71,37 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+    Route::post('/leadership-week-reviews', [LeadershipWeekReviewController::class, 'store'])->name('leadership-week-reviews.store');
+
+    Route::get('/academic-period', [AcademicPeriodController::class, 'show'])->name('academic-period.show');
+    Route::post('/academic-period/sessions', [AcademicPeriodController::class, 'storeSession'])->name('academic-period.sessions.store');
+    Route::post('/academic-period/terms', [AcademicPeriodController::class, 'storeTerm'])->name('academic-period.terms.store');
+    Route::post('/academic-period/transition', [AcademicPeriodController::class, 'transition'])->name('academic-period.transition');
+    Route::post('/academic-period/rollover', [AcademicPeriodController::class, 'rollover'])->name('academic-period.rollover');
+    Route::post('/academic-period/open', [AcademicPeriodController::class, 'openInitial'])->name('academic-period.open');
 
     Route::get('/status-thresholds', [StatusThresholdController::class, 'edit'])->name('status-thresholds.edit');
     Route::put('/status-thresholds', [StatusThresholdController::class, 'update'])->name('status-thresholds.update');
+    Route::get('/planning-policy', [PlanningPolicyController::class, 'edit'])->name('planning-policy.edit');
+    Route::put('/planning-policy', [PlanningPolicyController::class, 'update'])->name('planning-policy.update');
+    Route::get('/curriculum-coverage', CurriculumCoverageReportController::class)->name('curriculum-coverage.report');
+    Route::post('/catch-ups', [TopicCatchUpPlanController::class, 'store'])->name('catch-ups.store');
+    Route::post('/catch-ups/{catchUp}/cancel', [TopicCatchUpPlanController::class, 'cancel'])->name('catch-ups.cancel');
+
+    Route::get('/schemes', [SchemeOfWorkController::class, 'index'])->name('schemes.index');
+    Route::get('/schemes/create', [SchemeOfWorkController::class, 'create'])->name('schemes.create');
+    Route::get('/schemes/template', [SchemeOfWorkController::class, 'template'])->name('schemes.template');
+    Route::post('/schemes', [SchemeOfWorkController::class, 'store'])->name('schemes.store');
+    Route::get('/schemes/{scheme}', [SchemeOfWorkController::class, 'show'])->name('schemes.show');
+    Route::get('/schemes/{scheme}/edit', [SchemeOfWorkController::class, 'edit'])->name('schemes.edit');
+    Route::put('/schemes/{scheme}', [SchemeOfWorkController::class, 'update'])->name('schemes.update');
+    Route::post('/schemes/{scheme}/submit', [SchemeOfWorkController::class, 'submit'])->name('schemes.submit');
+    Route::post('/schemes/{scheme}/clone', [SchemeOfWorkController::class, 'clone'])->name('schemes.clone');
+    Route::post('/schemes/{scheme}/approve', [SchemeOfWorkController::class, 'approve'])->name('schemes.approve');
+    Route::post('/schemes/{scheme}/reject', [SchemeOfWorkController::class, 'reject'])->name('schemes.reject');
+    Route::post('/schemes/{scheme}/activate', [SchemeOfWorkController::class, 'activate'])->name('schemes.activate');
+    Route::delete('/schemes/{scheme}', [SchemeOfWorkController::class, 'destroy'])->name('schemes.destroy');
+    Route::get('/schemes/{scheme}/file', [SchemeOfWorkController::class, 'file'])->name('schemes.file');
 
     Route::get('/coverage-logs', [TopicCoverageLogController::class, 'index'])->name('coverage-logs.index');
     Route::get('/coverage-logs/create', [TopicCoverageLogController::class, 'create'])->name('coverage-logs.create');
@@ -86,6 +122,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/homework', [HomeworkLogController::class, 'store'])->name('homework.store');
     Route::get('/homework/{homeworkLog}/edit', [HomeworkLogController::class, 'edit'])->name('homework.edit');
     Route::put('/homework/{homeworkLog}', [HomeworkLogController::class, 'update'])->name('homework.update');
+    Route::post('/homework/{homeworkLog}/verify', [HomeworkLogController::class, 'verify'])->name('homework.verify');
+    Route::post('/homework/{homeworkLog}/reject', [HomeworkLogController::class, 'reject'])->name('homework.reject');
     Route::delete('/homework/{homeworkLog}', [HomeworkLogController::class, 'destroy'])->name('homework.destroy');
 
     Route::get('/attendance', [AttendanceLogController::class, 'index'])->name('attendance.index');
@@ -93,6 +131,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/attendance', [AttendanceLogController::class, 'store'])->name('attendance.store');
     Route::get('/attendance/{attendanceLog}/edit', [AttendanceLogController::class, 'edit'])->name('attendance.edit');
     Route::put('/attendance/{attendanceLog}', [AttendanceLogController::class, 'update'])->name('attendance.update');
+    Route::post('/attendance/{attendanceLog}/verify', [AttendanceLogController::class, 'verify'])->name('attendance.verify');
+    Route::post('/attendance/{attendanceLog}/reject', [AttendanceLogController::class, 'reject'])->name('attendance.reject');
     Route::delete('/attendance/{attendanceLog}', [AttendanceLogController::class, 'destroy'])->name('attendance.destroy');
 
     Route::get('/learners', [LearnerController::class, 'index'])->name('learners.index');
@@ -105,6 +145,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/exam-results', [ExamResultController::class, 'index'])->name('exam-results.index');
     Route::get('/exam-results/marksheet', [ExamResultController::class, 'edit'])->name('exam-results.edit');
     Route::put('/exam-results/marksheet', [ExamResultController::class, 'update'])->name('exam-results.update');
+    Route::post('/exam-results/verify', [ExamResultController::class, 'verify'])->name('exam-results.verify');
+    Route::post('/exam-results/reject', [ExamResultController::class, 'reject'])->name('exam-results.reject');
 
     Route::get('/at-risk', [AtRiskLearnerController::class, 'index'])->name('at-risk.index');
     Route::get('/at-risk/create', [AtRiskLearnerController::class, 'create'])->name('at-risk.create');
@@ -116,6 +158,10 @@ Route::middleware('auth')->group(function () {
     Route::post('/at-risk/{atRiskLearner}/plans', [InterventionPlanController::class, 'store'])->name('at-risk.plans.store');
     Route::get('/intervention-plans/{interventionPlan}/edit', [InterventionPlanController::class, 'edit'])->name('intervention-plans.edit');
     Route::put('/intervention-plans/{interventionPlan}', [InterventionPlanController::class, 'update'])->name('intervention-plans.update');
+
+    Route::get('/activities/{activity}', ComingSoonActivityController::class)
+        ->whereIn('activity', ['numeracy-progress', 'learner-assimilation-rate'])
+        ->name('activities.coming-soon');
 
     Route::get('/reading', [ReadingAssessmentController::class, 'index'])->name('reading.index');
     Route::get('/reading/record', [ReadingAssessmentController::class, 'create'])->name('reading.create');
@@ -208,10 +254,11 @@ Route::middleware('auth')->group(function () {
         Route::get('/', AdminDashboardController::class)->name('dashboard');
         Route::get('control-panel', [ControlPanelController::class, 'edit'])->name('control-panel.edit');
         Route::put('control-panel', [ControlPanelController::class, 'update'])->name('control-panel.update');
-        Route::post('sessions/{session}/set-current', [AcademicSessionController::class, 'setCurrent'])->name('sessions.set-current');
+        Route::post('sessions/{session}/activate', [AcademicSessionController::class, 'activate'])->name('sessions.activate');
         Route::resource('sessions', AcademicSessionController::class)->except(['show']);
         Route::resource('terms', TermController::class)->except(['show']);
         Route::resource('classes', SchoolClassController::class)->except(['show']);
+        Route::resource('departments', DepartmentController::class)->except(['show']);
         Route::resource('subjects', SubjectController::class)->except(['show']);
         Route::resource('users', UserController::class)->except(['show']);
         Route::resource('assignments', TeacherAssignmentController::class)->except(['show'])->parameters(['assignments' => 'assignment']);

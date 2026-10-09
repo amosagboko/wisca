@@ -27,6 +27,7 @@ class CoverageCalculationService
         $row = KpiPeriodicData::updateOrCreate(
             [
                 'kpi_id' => $kpi->id,
+                'measure_key' => null,
                 'academic_session_id' => $scheme->academic_session_id,
                 'term_id' => $scheme->term_id,
                 'school_class_id' => $scheme->school_class_id,
@@ -86,6 +87,7 @@ class CoverageCalculationService
         return KpiPeriodicData::updateOrCreate(
             [
                 'kpi_id' => $kpi->id,
+                'measure_key' => null,
                 'academic_session_id' => $sessionId,
                 'term_id' => $termId,
                 'school_class_id' => null,

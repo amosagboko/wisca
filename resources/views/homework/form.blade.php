@@ -1,6 +1,6 @@
 @php
     $isEdit = $log->exists;
-    $selectedAssignment = old('assignment', $log->school_class_id && $log->subject_id ? $log->school_class_id.':'.$log->subject_id : '');
+    $selectedAssignment = old('assignment', request('assignment', $log->school_class_id && $log->subject_id ? $log->school_class_id.':'.$log->subject_id : ''));
 @endphp
 
 <x-portal-layout :title="$isEdit ? 'Update Homework' : 'Log Homework'">
@@ -9,6 +9,12 @@
         :title="$isEdit ? 'Update homework log' : 'Class homework log'"
         meta="Record how many assignments were given and how many were completed on time. Enter 0 completions until you have marked the work, then update this log."
     />
+
+    @if ($isEdit && $log->isRejected() && $log->rejection_reason)
+        <div class="portal-enter mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            Returned by HOD: {{ $log->rejection_reason }}
+        </div>
+    @endif
 
     <x-portal.panel :title="$isEdit ? 'Edit log' : 'Assignment details'">
         @if ($assignments->isEmpty())

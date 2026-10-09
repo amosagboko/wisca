@@ -28,7 +28,7 @@ class AcademicSession extends Model
 
     public function terms(): HasMany
     {
-        return $this->hasMany(Term::class);
+        return $this->hasMany(Term::class)->orderBy('sequence');
     }
 
     public static function currentForSchool(int $schoolId): ?self
@@ -36,12 +36,11 @@ class AcademicSession extends Model
         return static::where('school_id', $schoolId)->where('is_current', true)->first();
     }
 
+    /**
+     * Current-period changes must go through AcademicPeriodService.
+     */
     public function markAsCurrent(): void
     {
-        static::where('school_id', $this->school_id)
-            ->where('id', '!=', $this->id)
-            ->update(['is_current' => false]);
-
-        $this->update(['is_current' => true, 'status' => 'active']);
+        throw new \LogicException('Use AcademicPeriodService to change the current academic session.');
     }
 }

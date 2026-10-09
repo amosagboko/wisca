@@ -19,8 +19,9 @@ class ChapelController extends Controller
     {
         $user = auth()->user();
         abort_unless(
-            $user->isAdmin() || $user->isHoS() || $user->isHoD()
-                || $user->hasRole('chaplain') || $user->hasRole('admin_officer'),
+            $user->isAdmin() || $user->isLeadership() || $user->isHoD()
+                || $user->isTeacher() || $user->isChaplain() || $user->isAdminOfficer()
+                || $user->isStudentLifeCoordinator(),
             403
         );
 
@@ -68,8 +69,9 @@ class ChapelController extends Controller
     {
         $user = auth()->user();
         abort_unless(
-            $user->isAdmin() || $user->isHoS() || $user->isHoD()
-                || $user->hasRole('chaplain') || $user->hasRole('admin_officer'),
+            $user->isAdmin() || $user->isLeadership() || $user->isHoD()
+                || $user->isTeacher() || $user->isChaplain() || $user->isAdminOfficer()
+                || $user->isStudentLifeCoordinator(),
             403
         );
         abort_unless($chapelSession->school_id === $user->school_id, 403);
@@ -96,8 +98,9 @@ class ChapelController extends Controller
     {
         $user = auth()->user();
         abort_unless(
-            $user->isAdmin() || $user->isHoS() || $user->isHoD()
-                || $user->hasRole('chaplain') || $user->hasRole('admin_officer'),
+            $user->isAdmin() || $user->isLeadership() || $user->isHoD()
+                || $user->isTeacher() || $user->isChaplain() || $user->isAdminOfficer()
+                || $user->isStudentLifeCoordinator(),
             403
         );
         abort_unless($chapelSession->school_id === $user->school_id, 403);

@@ -130,7 +130,8 @@ class PartnershipSignatureController extends Controller
     private function canAccess($user): bool
     {
         return $user->isAdmin()
-            || $user->isHoS()
+            || $user->isLeadership()
+            || $user->isChaplain()
             || $user->isParentRelationsLead();
     }
 }

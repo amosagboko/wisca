@@ -157,6 +157,7 @@
                                     Rate <span class="text-slate-400">{{ $sortIcon('rate') }}</span>
                                 </a>
                             </th>
+                            <th class="px-5 py-3 font-semibold text-slate-600">Review</th>
                             @if ($canEnter && $term)
                                 <th class="px-5 py-3 font-semibold text-slate-600 text-right">Action</th>
                             @endif
@@ -184,12 +185,17 @@
                                     {{ $row['enrolled'] > 0 && $row['rate'] >= 0.9 ? 'text-emerald-700' : ($row['enrolled'] > 0 ? 'text-amber-700' : 'text-slate-400') }}">
                                     {{ $row['enrolled'] > 0 ? number_format($row['rate'] * 100, 1).'%' : '—' }}
                                 </td>
+                                <td class="px-5 py-3 capitalize text-slate-600">{{ $row['review_status'] ?? 'incomplete' }}</td>
                                 @if ($canEnter && $term)
                                     <td class="px-5 py-3 text-right">
-                                        <a href="{{ route('exam-results.edit', ['assignment' => $assignment->school_class_id.':'.$assignment->subject_id]) }}"
-                                           class="text-xs font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">
-                                            {{ $row['recorded'] > 0 ? 'Update' : 'Enter' }}
-                                        </a>
+                                        @if (! empty($row['locked']))
+                                            <span class="text-xs text-slate-400">Verified</span>
+                                        @else
+                                            <a href="{{ route('exam-results.edit', ['assignment' => $assignment->school_class_id.':'.$assignment->subject_id]) }}"
+                                               class="text-xs font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">
+                                                {{ ($row['review_status'] ?? '') === 'rejected' ? 'Revise' : ($row['recorded'] > 0 ? 'Update' : 'Enter') }}
+                                            </a>
+                                        @endif
                                     </td>
                                 @endif
                             </tr>

@@ -8,6 +8,7 @@ use App\Models\Learner;
 use App\Models\TeacherAssignment;
 use App\Models\Term;
 use App\Services\ExamCalculationService;
+use App\Services\ExamSittingReview;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -146,6 +147,13 @@ class ExamResultController extends Controller
         ]);
 
         [$classId, $subjectId] = array_map('intval', explode(':', $validated['assignment']));
+        $current = $exams->sittingSummary($session, $term, $classId, $subjectId);
+        if ($current['locked']) {
+            return back()->withErrors([
+                'assignment' => 'Verified marksheets cannot be edited. Ask the HOD to return it first.',
+            ])->withInput();
+        }
+
         $learnerIds = Learner::where('school_class_id', $classId)
             ->where('school_id', $user->school_id)
             ->where('status', 'enrolled')
@@ -187,9 +195,54 @@ class ExamResultController extends Controller
 
         $exams->recalculateForSession($session, $term);
 
+        $saved = $exams->sittingSummary($session, $term, $classId, $subjectId);
+        if ($saved['enrolled'] > 0 && $saved['recorded'] >= $saved['enrolled']) {
+            app(ExamSittingReview::class)->markSittingSubmitted($session, $term, $classId, $subjectId);
+        }
+
         return redirect()
             ->route('exam-results.edit', ['assignment' => $validated['assignment']])
-            ->with('success', 'Marksheet saved. AE-02 uses enrolled learners, including those without a score.');
+            ->with('success', 'Marksheet saved. AE-02 uses enrolled learners, including those without a score. HOD still verifies a complete sitting.');
+    }
+
+    public function verify(Request $request, ExamSittingReview $review): RedirectResponse
+    {
+        [$session, $term, $classId, $subjectId] = $this->sittingFromRequest($request);
+        $review->verify(auth()->user(), $session, $term, $classId, $subjectId);
+
+        return back()->with('success', 'HOD verified the marksheet. Below-pass learners are queued on the at-risk register. Executive AE-02 still uses scores vs the enrolled roll.');
+    }
+
+    public function reject(Request $request, ExamSittingReview $review): RedirectResponse
+    {
+        $validated = $request->validate([
+            'rejection_reason' => ['required', 'string', 'max:2000'],
+        ]);
+        [$session, $term, $classId, $subjectId] = $this->sittingFromRequest($request);
+        $review->reject(auth()->user(), $session, $term, $classId, $subjectId, $validated['rejection_reason']);
+
+        return back()->with('success', 'Marksheet returned for revision. The teacher can update scores.');
+    }
+
+    /**
+     * @return array{0: AcademicSession, 1: Term, 2: int, 3: int}
+     */
+    protected function sittingFromRequest(Request $request): array
+    {
+        $user = auth()->user();
+        $session = AcademicSession::currentForSchool($user->school_id);
+        abort_unless($session, 403, 'No active academic session configured.');
+        $term = Term::currentForSession($session->id);
+        abort_unless($term, 403, 'No active term configured.');
+
+        $assignments = $this->assignments($user, $session->id);
+        $keys = $assignments->map(fn ($row) => $row->school_class_id.':'.$row->subject_id)->all();
+        $validated = $request->validate([
+            'assignment' => ['required', 'string', Rule::in($keys)],
+        ]);
+        [$classId, $subjectId] = array_map('intval', explode(':', $validated['assignment']));
+
+        return [$session, $term, $classId, $subjectId];
     }
 
     protected function assignments($user, int $sessionId)
@@ -201,6 +254,10 @@ class ExamResultController extends Controller
 
         if ($user->isTeacher() && ! $user->isHoD() && ! $user->isHoS() && ! $user->isAdmin()) {
             $query->where('teacher_id', $user->id);
+        }
+
+        if ($user->isHoD() && ! $user->isHoS() && ! $user->isAdmin()) {
+            app(\App\Services\HodScope::class)->constrainBySubject($query, $user);
         }
 
         return $query->get()->sortBy(fn ($row) => $row->schoolClass?->name.' '.$row->subject?->name);

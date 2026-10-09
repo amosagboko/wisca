@@ -10,7 +10,21 @@
     />
 
     <x-portal.panel title="Assignment details">
-        <form method="POST" action="{{ $isEdit ? route('admin.assignments.update', $assignment) : route('admin.assignments.store') }}" class="space-y-5 max-w-2xl">
+        <form method="POST" action="{{ $isEdit ? route('admin.assignments.update', $assignment) : route('admin.assignments.store') }}" class="space-y-5 max-w-2xl"
+              x-data="{
+                  classId: @js((string) old('school_class_id', $assignment->school_class_id ?? '')),
+                  offeredByClass: @js($offeredByClass ?? []),
+                  subjectOffered(id) {
+                      if (!this.classId) {
+                          return false;
+                      }
+                      const offered = this.offeredByClass[String(this.classId)] || [];
+                      if (!offered.length) {
+                          return true;
+                      }
+                      return offered.map(String).includes(String(id));
+                  }
+              }">
             @csrf
             @if ($isEdit)
                 @method('PUT')
@@ -29,7 +43,7 @@
 
             <div>
                 <x-input-label for="school_class_id" value="Class" />
-                <select id="school_class_id" name="school_class_id" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                <select id="school_class_id" name="school_class_id" required x-model="classId" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                     <option value="">Select class...</option>
                     @foreach ($classes as $class)
                         <option value="{{ $class->id }}" @selected(old('school_class_id', $assignment->school_class_id) == $class->id)>{{ $class->name }}</option>
@@ -43,10 +57,16 @@
                 <select id="subject_id" name="subject_id" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                     <option value="">Select subject...</option>
                     @foreach ($subjects as $subject)
-                        <option value="{{ $subject->id }}" @selected(old('subject_id', $assignment->subject_id) == $subject->id)>{{ $subject->name }}</option>
+                        <option
+                            value="{{ $subject->id }}"
+                            x-show="subjectOffered({{ $subject->id }})"
+                            :disabled="!subjectOffered({{ $subject->id }})"
+                            @selected(old('subject_id', $assignment->subject_id) == $subject->id)
+                        >{{ $subject->name }}</option>
                     @endforeach
                 </select>
                 <x-input-error :messages="$errors->get('subject_id')" class="mt-2" />
+                <p class="mt-1 text-xs text-slate-500">Subjects shown are those offered in the selected class.</p>
             </div>
 
             <div>

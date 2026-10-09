@@ -2,7 +2,7 @@
     <x-portal.page-intro
         eyebrow="School Structure"
         title="Classes"
-        meta="Define class levels used in curriculum coverage and teacher assignments."
+        meta="Define class levels, then add subjects to each class from here or from Subjects."
     />
 
     <div class="mb-4 flex justify-end">
@@ -18,7 +18,6 @@
                     <tr>
                         <th class="px-5 sm:px-6 py-3 font-semibold text-slate-600">Name</th>
                         <th class="px-5 py-3 font-semibold text-slate-600">Level</th>
-                        <th class="px-5 py-3 font-semibold text-slate-600">Order</th>
                         <th class="px-5 py-3 font-semibold text-slate-600">Status</th>
                         <th class="px-5 py-3 font-semibold text-slate-600 text-right">Actions</th>
                     </tr>
@@ -28,10 +27,10 @@
                         <tr class="border-t border-slate-100">
                             <td class="px-5 sm:px-6 py-3 font-medium text-slate-800">{{ $class->name }}</td>
                             <td class="px-5 py-3">{{ $class->level }}</td>
-                            <td class="px-5 py-3">{{ $class->display_order }}</td>
                             <td class="px-5 py-3 capitalize">{{ $class->status }}</td>
                             <td class="px-5 py-3 text-right space-x-2">
                                 <a href="{{ route('admin.classes.edit', $class) }}" class="text-xs font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">Edit</a>
+                                <a href="{{ route('admin.subjects.create', ['class_id' => $class->id]) }}" class="text-xs font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">Add subject</a>
                                 <form method="POST" action="{{ route('admin.classes.destroy', $class) }}" class="inline" onsubmit="return confirm('Delete this class?')">
                                     @csrf
                                     @method('DELETE')
@@ -41,7 +40,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="5" class="px-5 sm:px-6 py-8 text-center text-slate-500">No classes configured yet.</td>
+                            <td colspan="4" class="px-5 sm:px-6 py-8 text-center text-slate-500">No classes configured yet.</td>
                         </tr>
                     @endforelse
                 </tbody>

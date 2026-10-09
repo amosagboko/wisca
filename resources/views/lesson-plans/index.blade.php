@@ -7,19 +7,18 @@
         || $f['search'] !== '' || $f['sortBy'] !== 'date_desc'
         || ($f['sessionId'] && $f['sessionId'] !== ($allSessions->first()?->id ?? 0));
 
-    // Summary counts (from filtered set)
-    $submitted = $plans->where('status', 'submitted')->count();
-    $approved  = $plans->where('status', 'approved')->count();
-    $rejected  = $plans->where('status', 'rejected')->count();
-    $onTime    = $plans->where('on_time', true)->whereNotNull('submitted_at')->count();
-    $late      = $plans->where('on_time', false)->whereNotNull('submitted_at')->count();
+    $submitted = $planSummary['submitted'] ?? $plans->where('status', 'submitted')->count();
+    $approved  = $planSummary['approved'] ?? $plans->where('status', 'approved')->count();
+    $rejected  = $planSummary['rejected'] ?? $plans->where('status', 'rejected')->count();
+    $onTime    = $planSummary['on_time'] ?? $plans->where('on_time', true)->whereNotNull('submitted_at')->count();
+    $late      = $planSummary['late'] ?? $plans->where('on_time', false)->whereNotNull('submitted_at')->count();
 @endphp
 
 <x-portal-layout title="Lesson Plans">
     <x-portal.page-intro
         eyebrow="Appendix A · AE-05"
         title="Lesson plans"
-        :meta="'Plans must be submitted before Monday and approved before coverage can be logged · '.$session->name.'.'"
+        :meta="'Plans must be submitted before '.($dueWeekdayName ?? 'Thursday').' and approved before coverage can be logged · '.$session->name.'.'"
     />
 
     {{-- Filter bar --}}
@@ -172,7 +171,7 @@
         </div>
     @endif
 
-    <x-portal.panel :title="($isStaff ? 'Department lesson plans' : 'My lesson plans').($plans->count() ? ' ('.$plans->count().')' : '')">
+    <x-portal.panel :title="($isStaff ? 'Department lesson plans' : 'My lesson plans').((method_exists($plans, 'total') ? $plans->total() : $plans->count()) ? ' ('.(method_exists($plans, 'total') ? $plans->total() : $plans->count()).')' : '')">
         @if ($plans->isEmpty())
             <p class="text-sm text-slate-500">
                 @if ($activeFilters)
@@ -236,31 +235,29 @@
                                     @if ($plan->rejection_reason)
                                         <p class="mt-1 max-w-xs text-xs text-red-700">{{ $plan->rejection_reason }}</p>
                                     @endif
+                                    @include('lesson-plans.partials.review-result', ['plan' => $plan])
                                 </td>
                                 <td class="px-5 py-3 text-right">
                                     @if ($canSubmit && $plan->isEditable())
                                         <a href="{{ route('lesson-plans.edit', $plan) }}"
                                            class="text-xs font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">Revise</a>
                                     @elseif ($isStaff && $plan->status === 'submitted')
-                                        <div class="inline-flex flex-col items-end gap-1">
-                                            <form method="POST" action="{{ route('lesson-plans.approve', $plan) }}" class="inline">
+                                        <div class="mx-auto w-64 space-y-3 text-left">
+                                            <form method="POST" action="{{ route('lesson-plans.approve', $plan) }}" class="space-y-2">
                                                 @csrf
+                                                @include('lesson-plans.partials.review-form')
                                                 <button type="submit"
-                                                        class="text-xs font-semibold uppercase tracking-wide text-emerald-700 hover:underline">Approve</button>
+                                                        class="text-xs font-semibold uppercase tracking-wide text-emerald-700 hover:underline">Approve plan</button>
                                             </form>
-                                            <button type="button"
-                                                    onclick="document.getElementById('reject-lp-{{ $plan->id }}').classList.toggle('hidden')"
-                                                    class="text-xs font-semibold uppercase tracking-wide text-red-600 hover:underline">Reject</button>
-                                            <div id="reject-lp-{{ $plan->id }}" class="hidden mt-1 w-52 text-left">
-                                                <form method="POST" action="{{ route('lesson-plans.reject', $plan) }}" class="space-y-1">
-                                                    @csrf
-                                                    <textarea name="rejection_reason" rows="2" required
-                                                              placeholder="Reason…"
-                                                              class="w-full rounded-md border-gray-300 text-xs shadow-sm focus:border-indigo-500 focus:ring-indigo-500"></textarea>
-                                                    <button type="submit"
-                                                            class="text-xs font-semibold uppercase tracking-wide text-red-700 hover:underline">Confirm reject</button>
-                                                </form>
-                                            </div>
+                                            <form method="POST" action="{{ route('lesson-plans.reject', $plan) }}" class="space-y-2">
+                                                @csrf
+                                                @include('lesson-plans.partials.review-form')
+                                                <textarea name="rejection_reason" rows="2" required
+                                                          placeholder="Revision notes"
+                                                          class="w-full rounded-md border-gray-300 text-xs shadow-sm focus:border-indigo-500 focus:ring-indigo-500"></textarea>
+                                                <button type="submit"
+                                                        class="text-xs font-semibold uppercase tracking-wide text-red-700 hover:underline">Return for revision</button>
+                                            </form>
                                         </div>
                                     @else
                                         <span class="text-xs text-slate-400">—</span>
@@ -271,6 +268,9 @@
                     </tbody>
                 </table>
             </div>
+            @if (method_exists($plans, 'hasPages') && $plans->hasPages())
+                <div class="mt-4 px-5 sm:px-6">{{ $plans->links() }}</div>
+            @endif
         @endif
     </x-portal.panel>
 

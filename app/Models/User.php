@@ -16,7 +16,7 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Traits\HasRoles;
 
-#[Fillable(['name', 'email', 'phone', 'passport_path', 'password', 'school_id', 'status'])]
+#[Fillable(['name', 'email', 'phone', 'passport_path', 'password', 'school_id', 'department_id', 'status'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -34,6 +34,11 @@ class User extends Authenticatable
     public function school(): BelongsTo
     {
         return $this->belongsTo(School::class);
+    }
+
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(Department::class);
     }
 
     public function subjects(): BelongsToMany
@@ -68,6 +73,11 @@ class User extends Authenticatable
         return $this->hasRole('head_of_school');
     }
 
+    public function isLeadership(): bool
+    {
+        return $this->isHoS() || $this->isAssistantHead();
+    }
+
     public function isHoD(): bool
     {
         return $this->hasRole('head_of_department');
@@ -81,6 +91,16 @@ class User extends Authenticatable
     public function isAdmin(): bool
     {
         return $this->hasRole('admin');
+    }
+
+    public function canManageAcademicPeriod(): bool
+    {
+        return $this->isAdmin() || $this->isHoS() || $this->isBoard();
+    }
+
+    public function canActivateAcademicPeriod(): bool
+    {
+        return $this->isAdmin();
     }
 
     public function isAdminOfficer(): bool
@@ -100,12 +120,12 @@ class User extends Authenticatable
 
     public function canViewAttendance(): bool
     {
-        return $this->canRecordAttendance() || $this->isHoD();
+        return $this->canRecordAttendance() || $this->isHoD() || $this->isAssistantHead();
     }
 
     public function canConductObservation(): bool
     {
-        return $this->isHoD() || $this->isHoS() || $this->isAdmin();
+        return $this->isHoD() || $this->isLeadership() || $this->isAdmin();
     }
 
     public function canViewObservations(): bool
@@ -120,12 +140,17 @@ class User extends Authenticatable
 
     public function canViewLearners(): bool
     {
-        return $this->canManageLearners() || $this->isHoD() || $this->isTeacher() || $this->isLearningSupport();
+        return $this->canManageLearners()
+            || $this->isHoD()
+            || $this->isTeacher()
+            || $this->isLearningSupport()
+            || $this->isLiteracyCoordinator()
+            || $this->isAssistantHead();
     }
 
     public function canEnterExamResults(): bool
     {
-        return $this->isTeacher() || $this->isHoD() || $this->isHoS() || $this->isAdmin();
+        return $this->isTeacher() || $this->isHoD() || $this->isLeadership() || $this->isAdmin();
     }
 
     public function canViewExamResults(): bool
@@ -140,12 +165,12 @@ class User extends Authenticatable
 
     public function canIdentifyAtRisk(): bool
     {
-        return $this->isLearningSupport() || $this->isHoD() || $this->isHoS() || $this->isAdmin() || $this->isTeacher();
+        return $this->isLearningSupport() || $this->isHoD() || $this->isLeadership() || $this->isAdmin() || $this->isTeacher();
     }
 
     public function canManageInterventionPlans(): bool
     {
-        return $this->isLearningSupport() || $this->isHoD() || $this->isHoS() || $this->isAdmin();
+        return $this->isLearningSupport() || $this->isHoD() || $this->isLeadership() || $this->isAdmin();
     }
 
     public function canViewAtRisk(): bool
@@ -168,9 +193,34 @@ class User extends Authenticatable
         return $this->hasRole('parent_relations_lead');
     }
 
+    public function isAssistantHead(): bool
+    {
+        return $this->hasRole('assistant_head_secondary');
+    }
+
+    public function isChaplain(): bool
+    {
+        return $this->hasRole('chaplain');
+    }
+
+    public function isSubjectLead(): bool
+    {
+        return $this->hasRole('subject_lead');
+    }
+
+    public function isIctCoordinator(): bool
+    {
+        return $this->hasRole(['ict_coordinator', 'it_consultant']);
+    }
+
     public function isItConsultant(): bool
     {
-        return $this->hasRole('it_consultant');
+        return $this->isIctCoordinator();
+    }
+
+    public function isAdminManager(): bool
+    {
+        return $this->hasRole('admin_manager');
     }
 
     public function isStemCoordinator(): bool
@@ -180,7 +230,7 @@ class User extends Authenticatable
 
     public function canRecordReading(): bool
     {
-        return $this->isLiteracyCoordinator() || $this->isTeacher() || $this->isHoD() || $this->isHoS() || $this->isAdmin();
+        return $this->isLiteracyCoordinator() || $this->isTeacher() || $this->isHoD() || $this->isLeadership() || $this->isAdmin();
     }
 
     public function canViewReading(): bool

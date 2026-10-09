@@ -13,7 +13,7 @@ class StatusThresholdController extends Controller
     public function edit(Request $request, StatusThresholdResolver $resolver): View
     {
         $user = $request->user();
-        abort_unless($user->isAdmin() || $user->isHoS() || $user->isBoard(), 403);
+        abort_unless($user->isAdmin() || $user->isLeadership() || $user->isBoard(), 403);
 
         $school = $user->school;
         abort_unless($school, 403);
@@ -29,7 +29,7 @@ class StatusThresholdController extends Controller
     public function update(Request $request): RedirectResponse
     {
         $user = $request->user();
-        abort_unless($user->isAdmin() || $user->isHoS() || $user->isBoard(), 403);
+        abort_unless($user->isAdmin() || $user->isLeadership() || $user->isBoard(), 403);
 
         /** @var School $school */
         $school = $user->school;

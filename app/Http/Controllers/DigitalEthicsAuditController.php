@@ -190,7 +190,9 @@ class DigitalEthicsAuditController extends Controller
     private function canAccess($user): bool
     {
         return $user->isAdmin()
-            || $user->isHoS()
-            || $user->isItConsultant();
+            || $user->isLeadership()
+            || $user->isHoD()
+            || $user->isTeacher()
+            || $user->isIctCoordinator();
     }
 }

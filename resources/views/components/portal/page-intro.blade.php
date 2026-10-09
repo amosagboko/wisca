@@ -28,4 +28,11 @@
             @endisset
         </div>
     </div>
+
+    @php
+        $activityWork = \App\Support\WiscaOperationalCatalog::findActivityForRequest();
+    @endphp
+    @if ($activityWork)
+        <x-portal.activity-work-tabs :activity="$activityWork" class="mt-4 mb-0" />
+    @endif
 </div>

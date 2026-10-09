@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\AcademicSession;
+use App\Models\Department;
 use App\Models\LessonPlan;
 use App\Models\Kpi;
 use App\Models\KpiPeriodicData;
@@ -15,6 +16,7 @@ use App\Models\Term;
 use App\Models\Topic;
 use App\Models\User;
 use App\Services\KpiStatusEvaluator;
+use App\Services\LessonPlanCalculationService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Role;
@@ -29,7 +31,7 @@ class WiscaSeeder extends Seeder
             'board', 'head_of_school', 'head_of_department', 'assistant_head_secondary',
             'teacher', 'admin', 'admin_officer', 'learning_support_coordinator',
             'literacy_coordinator', 'chaplain', 'student_life_coordinator',
-            'parent_relations_lead', 'it_consultant', 'stem_coordinator', 'subject_lead',
+            'parent_relations_lead', 'ict_coordinator', 'admin_manager', 'stem_coordinator', 'subject_lead',
         ];
 
         foreach ($roles as $role) {
@@ -57,8 +59,12 @@ class WiscaSeeder extends Seeder
             'name' => 'First Term',
             'start_date' => '2025-09-01',
             'end_date' => '2025-12-15',
+            'sequence' => 1,
             'status' => 'active',
+            'is_current' => true,
         ]);
+
+        $this->call(AcademicPeriodDemoSeeder::class);
 
         $jss1a = SchoolClass::create([
             'school_id' => $school->id,
@@ -67,8 +73,15 @@ class WiscaSeeder extends Seeder
             'display_order' => 1,
         ]);
 
+        $mathsDept = Department::create([
+            'school_id' => $school->id,
+            'name' => 'Mathematics',
+            'status' => 'active',
+        ]);
+
         $math = Subject::create([
             'school_id' => $school->id,
+            'department_id' => $mathsDept->id,
             'name' => 'Mathematics',
             'code' => 'MTH',
         ]);
@@ -86,6 +99,7 @@ class WiscaSeeder extends Seeder
         foreach ($users as $data) {
             $user = User::create([
                 'school_id' => $school->id,
+                'department_id' => $data['role'] === 'head_of_department' ? $mathsDept->id : null,
                 'name' => $data['name'],
                 'email' => $data['email'],
                 'password' => Hash::make('password'),
@@ -98,6 +112,7 @@ class WiscaSeeder extends Seeder
         $teacher = $createdUsers['teacher'];
         $hod = $createdUsers['head_of_department'];
 
+        $jss1a->offeredSubjects()->syncWithoutDetaching([$math->id]);
         $jss1a->subjects()->attach($math->id, [
             'teacher_id' => $teacher->id,
             'academic_session_id' => $session->id,
@@ -135,15 +150,23 @@ class WiscaSeeder extends Seeder
             }
         }
 
+        $approvedAt = now();
         $scheme = SchemeOfWork::create([
             'subject_id' => $math->id,
             'school_class_id' => $jss1a->id,
             'academic_session_id' => $session->id,
             'term_id' => $term->id,
+            'version' => 1,
             'uploaded_by' => $hod->id,
             'status' => 'active',
-            'approved_by' => $createdUsers['head_of_school']->id,
-            'approved_at' => now(),
+            'submitted_by' => $hod->id,
+            'submitted_at' => $approvedAt,
+            'hos_approved_by' => $createdUsers['head_of_school']->id,
+            'hos_approved_at' => $approvedAt,
+            'board_approved_by' => $createdUsers['board']->id,
+            'board_approved_at' => $approvedAt,
+            'approved_by' => $createdUsers['board']->id,
+            'approved_at' => $approvedAt,
         ]);
 
         $topics = [
@@ -164,12 +187,13 @@ class WiscaSeeder extends Seeder
                 'scheme_of_work_id' => $scheme->id,
                 'week_number' => $topicData['week'],
                 'title' => $topicData['title'],
+                'learning_objectives' => ['Learners will demonstrate understanding of '.$topicData['title'].'.'],
                 'display_order' => $index + 1,
                 'status' => $index < 9 ? 'covered' : 'planned',
             ]);
 
             if ($index < 9) {
-                $due = $term->lessonPlanDueAt($topic->week_number);
+                $due = app(LessonPlanCalculationService::class)->dueAtForTopic($topic);
                 LessonPlan::create([
                     'topic_id' => $topic->id,
                     'teacher_id' => $teacher->id,
@@ -206,7 +230,7 @@ class WiscaSeeder extends Seeder
                     $this->kpi('AE-02', 'School-wide Examination Pass Rate', 'Consolidated termly grading ledger across all subjects and phases (Primary & Secondary).', '(Students scoring ≥50% in subject ÷ Total Enrolled) × 100', 'Termly Broad Sheet & Examination Result Ledger', 0.9, 'percentage', 'termly', '%', 'head_of_department', 2, ['target' => 0.9, 'actual' => 0.92]),
                     $this->kpi('AE-03', 'Homework Completion Rate', 'Weekly class register check tracking homework submission and correctness.', '(Assignments Completed On-Time ÷ Total Assignments Given) × 100', 'Classroom Homework Log & Portal Submission Log', 0.95, 'percentage', 'weekly', '%', 'teacher', 3, ['target' => 0.95, 'actual' => 0.94]),
                     $this->kpi('AE-04', 'Learner Attendance Rate', 'Daily morning roll call recorded on the digital portal register.', '(Days Present ÷ Total Instructional School Days) × 100', 'Digital Attendance Register System', 0.95, 'percentage', 'weekly', '%', 'admin_officer', 4, ['target' => 0.95, 'actual' => 0.965]),
-                    $this->kpi('AE-05', 'Lesson Plan Submission & Approval', 'Weekly digital portal upload audit prior to Monday morning instruction.', '(Approved Lesson Plans Submitted On-Time ÷ Total Required) × 100', 'Appendix A: Weekly Lesson Plan Tracker', 1.0, 'percentage', 'weekly', '%', 'head_of_department', 5, ['target' => 1.0, 'actual' => 0.98]),
+                    $this->kpi('AE-05', 'Lesson Plan Submission & Approval', 'Weekly digital portal upload audit against the school planning-policy due day.', '(Approved Lesson Plans Submitted On-Time ÷ Total Required) × 100', 'Appendix A: Weekly Lesson Plan Tracker', 1.0, 'percentage', 'weekly', '%', 'head_of_department', 5, ['target' => 1.0, 'actual' => 0.98]),
                     $this->kpi('AE-06', 'Effective or Better Lesson Observations', 'Structured classroom observation scoring across 12 instructional standards.', '(Lessons Scored ≥3 Secure on Rubric ÷ Total Observed) × 100', 'Appendix B: Classroom Observation Checklist', 0.9, 'percentage', 'termly', '%', 'head_of_school', 6, ['target' => 0.9, 'actual' => 0.88]),
                     $this->kpi('AE-07', 'At-Risk Learners with Active Plan', 'Monthly audit of students performing below 50% or marked Concern against active Tier 2/3 plans.', '(Identified Students with Active Support Plans ÷ Total Identified At-Risk) × 100', 'Appendix F: Learner Academic Intervention Plan', 1.0, 'percentage', 'monthly', '%', 'learning_support_coordinator', 7, ['target' => 1.0, 'actual' => 1.0]),
                     $this->kpi('AE-08', 'Reading Progress (≥1 Year Growth)', 'Standardized diagnostic reading tests administered at start and end of academic session.', '(Students achieving ≥1.0 Grade-Level Increase ÷ Total Assessed) × 100', 'Literacy Assessment Battery & Reading Logs', 0.85, 'percentage', 'termly', '%', 'literacy_coordinator', 8, ['target' => 0.85, 'actual' => 0.82]),

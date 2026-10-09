@@ -28,7 +28,7 @@ class DemoLmsSeeder extends Seeder
             return;
         }
 
-        Role::firstOrCreate(['name' => 'it_consultant', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'ict_coordinator', 'guard_name' => 'web']);
 
         $it = User::firstOrCreate(
             ['email' => 'it@wisca.test'],
@@ -40,7 +40,7 @@ class DemoLmsSeeder extends Seeder
                 'status' => 'active',
             ]
         );
-        $it->syncRoles(['it_consultant']);
+        $it->syncRoles(['ict_coordinator']);
 
         $weekStart = now()->startOfWeek()->toDateString();
 

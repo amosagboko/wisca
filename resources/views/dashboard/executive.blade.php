@@ -1,6 +1,7 @@
 @php
     $evaluator = app(\App\Services\KpiStatusEvaluator::class);
-    $defaultPillar = $summary['pillars']->first()['pillar']->code;
+    $firstPillar = $summary['pillars']->first();
+    $defaultPillar = is_array($firstPillar) ? ($firstPillar['pillar']->code ?? 'AE') : 'AE';
 @endphp
 
 <x-portal-layout title="Executive Dashboard">
@@ -14,6 +15,17 @@
                 @endforeach
             </select>
         </div>
+        @if (($allTerms ?? collect())->count() > 1)
+            <div>
+                <x-input-label for="exec_term" value="Term" />
+                <select id="exec_term" name="term_id" onchange="this.form.submit()"
+                        class="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm">
+                    @foreach ($allTerms as $t)
+                        <option value="{{ $t->id }}" @selected($term && $t->id === $term->id)>{{ $t->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+        @endif
     </form>
 
     <x-portal.page-intro
@@ -22,7 +34,52 @@
         :meta="'Live KPI monitoring for '.$summary['school_name'].' — session '.$session->name.'.'"
     />
 
+    @if (session('success'))
+        <div class="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            {{ session('success') }}
+        </div>
+    @endif
+
     <x-dashboard.school-hero :summary="$summary" :session="$session" class="mb-6" />
+
+    @if ($term ?? null)
+        <x-portal.work-inbox
+            title="Operational exceptions"
+            :subtitle="'Week '.($leadership['week_number'] ?? 1).' · '.$term->name.'. Teachers capture and HODs verify. You review outstanding department work — this does not change AE KPI formulas.'"
+            :items="$leadership['items'] ?? collect()"
+            empty="No outstanding HOD reviews or IIP gaps for this term. You can still record that leadership reviewed the week."
+        />
+
+        <x-portal.panel class="mb-6" title="Leadership week review" subtitle="A sign-off that you have seen this week’s exceptions. It does not approve lesson plans or verify coverage.">
+            @if ($leadership['review'] ?? null)
+                <p class="text-sm text-slate-600">
+                    Week {{ $leadership['week_number'] }} recorded by
+                    <span class="font-medium text-[#0f2d4a]">{{ $leadership['review']->reviewer?->name }}</span>
+                    on {{ $leadership['review']->reviewed_at?->format('d M Y H:i') }}.
+                </p>
+                @if ($leadership['review']->notes)
+                    <p class="mt-2 text-sm text-slate-500">{{ $leadership['review']->notes }}</p>
+                @endif
+            @else
+                <p class="text-sm text-slate-500">No leadership review recorded for week {{ $leadership['week_number'] ?? 1 }} yet.</p>
+            @endif
+
+            @if ($canReviewWeek ?? false)
+                <form method="POST" action="{{ route('leadership-week-reviews.store') }}" class="mt-4 max-w-xl space-y-3">
+                    @csrf
+                    <input type="hidden" name="session_id" value="{{ $session->id }}">
+                    <input type="hidden" name="term_id" value="{{ $term->id }}">
+                    <input type="hidden" name="week_number" value="{{ $leadership['week_number'] ?? 1 }}">
+                    <div>
+                        <x-input-label for="lead_notes" value="Notes (optional)" />
+                        <textarea id="lead_notes" name="notes" rows="2" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">{{ old('notes', $leadership['review']->notes ?? '') }}</textarea>
+                        <x-input-error :messages="$errors->get('notes')" class="mt-2" />
+                    </div>
+                    <x-primary-button>{{ ($leadership['review'] ?? null) ? 'Update week review' : 'Record week review' }}</x-primary-button>
+                </form>
+            @endif
+        </x-portal.panel>
+    @endif
 
     <div
         class="mb-6"

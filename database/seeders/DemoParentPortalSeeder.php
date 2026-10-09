@@ -30,7 +30,7 @@ class DemoParentPortalSeeder extends Seeder
         }
 
         $recorder = User::where('email', 'it@wisca.test')->first()
-            ?? User::where('school_id', $school->id)->whereHas('roles', fn ($q) => $q->whereIn('name', ['it_consultant', 'admin', 'head_of_school']))->first()
+            ?? User::where('school_id', $school->id)->whereHas('roles', fn ($q) => $q->whereIn('name', ['ict_coordinator', 'it_consultant', 'admin', 'head_of_school']))->first()
             ?? User::where('school_id', $school->id)->first();
 
         if (! $recorder) {

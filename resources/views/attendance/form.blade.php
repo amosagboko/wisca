@@ -9,6 +9,12 @@
         meta="Record how many learners were on the roll and how many were present. Late arrivals count as present. One log per class per day."
     />
 
+    @if ($isEdit && $log->isRejected() && $log->rejection_reason)
+        <div class="portal-enter mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            Returned by HOD: {{ $log->rejection_reason }}
+        </div>
+    @endif
+
     <x-portal.panel :title="$isEdit ? 'Edit register' : 'Class roll'">
         @if ($classes->isEmpty())
             <p class="text-sm text-slate-500">No classes are available for you to take attendance. Ask Admin to assign a class, or add classes first.</p>

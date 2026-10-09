@@ -44,6 +44,11 @@ class Topic extends Model
         return $this->hasOne(TopicCoverageLog::class)->latestOfMany();
     }
 
+    public function catchUpPlan(): HasOne
+    {
+        return $this->hasOne(TopicCatchUpPlan::class);
+    }
+
     public function hasApprovedLessonPlan(): bool
     {
         if ($this->relationLoaded('lessonPlans')) {
@@ -77,5 +82,13 @@ class Topic extends Model
         }
 
         return ! $log || in_array($log->status, ['draft', 'rejected'], true);
+    }
+
+    public function approvedLearningObjectives(): array
+    {
+        return array_values(array_filter(array_map(
+            fn ($line) => trim((string) $line),
+            is_array($this->learning_objectives) ? $this->learning_objectives : [],
+        )));
     }
 }

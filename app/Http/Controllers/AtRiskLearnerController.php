@@ -8,6 +8,7 @@ use App\Models\Learner;
 use App\Models\TeacherAssignment;
 use App\Models\Term;
 use App\Services\AtRiskCalculationService;
+use App\Services\HodScope;
 use App\Support\AtRiskCriteria;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -72,31 +73,29 @@ class AtRiskLearnerController extends Controller
             ->with(['learner.schoolClass', 'schoolClass', 'identifier', 'plans.coordinator'])
             ->latest('identification_date');
 
-        $allRecords = $recordQuery->get();
+        $recordQuery
+            ->when($filterPlan === 'with_plan', fn ($q) => $q->whereHas('plans', function ($plans) {
+                $plans->where('status', 'active')->whereIn('plan_type', [AtRiskCriteria::TIER_2, AtRiskCriteria::TIER_3]);
+            }))
+            ->when($filterPlan === 'without_plan', fn ($q) => $q->whereDoesntHave('plans', function ($plans) {
+                $plans->where('status', 'active')->whereIn('plan_type', [AtRiskCriteria::TIER_2, AtRiskCriteria::TIER_3]);
+            }));
 
-        // Plan filter applied in-memory (needs loaded relationship)
-        $records = match ($filterPlan) {
-            'with_plan'    => $allRecords->filter->hasActivePlan()->values(),
-            'without_plan' => $allRecords->reject->hasActivePlan()->values(),
-            default        => $allRecords,
-        };
+        $activeRecords = (clone $recordQuery)
+            ->where('status', 'active')
+            ->paginate(25, ['*'], 'page')
+            ->withQueryString();
 
-        // Split into active / resolved for display
-        $activeRecords   = $records->where('status', 'active')->values();
-        $resolvedRecords = $records->where('status', 'resolved')->sortByDesc('resolved_at')->values();
+        $resolvedRecords = (clone $recordQuery)
+            ->where('status', 'resolved')
+            ->latest('resolved_at')
+            ->when($filterStatus !== 'resolved', fn ($q) => $q->limit(12))
+            ->when($filterStatus === 'resolved', fn ($q) => $q->limit(50))
+            ->get();
 
-        // AE-07 summary always uses the unfiltered active records for this session/term
-        $rawOpen = $atRisk->openRecords($session, $term)
-            ->when($classIds !== null, fn ($rows) => $rows->whereIn('school_class_id', $classIds ?: [0])->values());
-
-        $summary = [
-            'identified'   => $rawOpen->count(),
-            'with_plan'    => $rawOpen->filter->hasActivePlan()->count(),
-            'without_plan' => $rawOpen->reject->hasActivePlan()->count(),
-            'rate'         => $rawOpen->count() > 0
-                ? round($rawOpen->filter->hasActivePlan()->count() / $rawOpen->count(), 4)
-                : 0.0,
-        ];
+        $summary = $term
+            ? $atRisk->monthSummary($session, $term, $classIds, false)
+            : ['identified' => 0, 'with_plan' => 0, 'without_plan' => 0, 'rate' => 0.0];
 
         $filters = compact(
             'sessionId', 'termId', 'filterClassId', 'filterPlan',
@@ -281,8 +280,12 @@ class AtRiskLearnerController extends Controller
     /** @return array<int, int>|null */
     protected function classIds($user, ?int $sessionId): ?array
     {
-        if ($user->canManageInterventionPlans() || $user->isHoD() || $user->isHoS() || $user->isLearningSupport()) {
+        if ($user->isHoS() || $user->isAdmin() || $user->isLearningSupport() || $user->isAssistantHead()) {
             return null;
+        }
+
+        if ($user->isHoD()) {
+            return app(HodScope::class)->classIds($user);
         }
 
         if (! $sessionId) {

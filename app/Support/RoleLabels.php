@@ -18,7 +18,10 @@ class RoleLabels
             'chaplain' => 'Chaplain',
             'student_life_coordinator' => 'Student Life Coordinator',
             'parent_relations_lead' => 'Parent Relations Lead',
-            'it_consultant' => 'IT Consultant',
+            'ict_coordinator' => 'ICT Coordinator',
+            'it_consultant' => 'ICT Coordinator',
+            'admin_manager' => 'Admin Manager',
+            'admin' => 'System Admin',
             'stem_coordinator' => 'STEM Coordinator',
             'subject_lead' => 'Subject Lead',
             'assistant_head_secondary' => 'Assistant Head (Secondary)',
@@ -32,5 +35,17 @@ class RoleLabels
         }
 
         return static::all()[$role] ?? ucwords(str_replace('_', ' ', $role));
+    }
+
+    /**
+     * @param  array<int, string>  $roles
+     */
+    public static function list(array $roles): string
+    {
+        return collect($roles)
+            ->map(fn (string $role) => static::label($role))
+            ->unique()
+            ->values()
+            ->implode(', ');
     }
 }

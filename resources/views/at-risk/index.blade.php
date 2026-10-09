@@ -168,7 +168,7 @@
     {{-- Active records --}}
     @if ($f['filterStatus'] !== 'resolved')
         <x-portal.panel
-            :title="'Currently identified'.($activeRecords->count() ? ' ('.$activeRecords->count().')' : '')"
+            :title="'Currently identified'.((method_exists($activeRecords, 'total') ? $activeRecords->total() : $activeRecords->count()) ? ' ('.(method_exists($activeRecords, 'total') ? $activeRecords->total() : $activeRecords->count()).')' : '')"
             subtitle="Only an active Tier 2 or Tier 3 plan counts in the numerator. Draft, completed, and discontinued plans do not.">
             @if ($activeRecords->isEmpty())
                 <p class="text-sm text-slate-500">No records match the current filters.{{ $canIdentify ? ' Flag a below-pass-mark learner above or record a Concern.' : '' }}</p>
@@ -216,6 +216,9 @@
                         </tbody>
                     </table>
                 </div>
+                @if (method_exists($activeRecords, 'hasPages') && $activeRecords->hasPages())
+                    <div class="mt-4 px-5 sm:px-6">{{ $activeRecords->links() }}</div>
+                @endif
             @endif
         </x-portal.panel>
     @endif

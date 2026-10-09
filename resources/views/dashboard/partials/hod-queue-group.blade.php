@@ -1,16 +1,4 @@
 @php
-    $groupItems = $items->map(function ($model) {
-        return [
-            'teacherId' => $model->teacher_id,
-            'classId' => $model->school_class_id,
-            'subjectId' => $model->subject_id,
-            'teacher' => $model->teacher->name,
-            'className' => $model->schoolClass->name,
-            'subject' => $model->subject->name,
-            'topic' => $model->topic->title,
-        ];
-    })->values();
-
     $heading = $type === 'teacher'
         ? $items->first()->teacher->name
         : $items->first()->schoolClass->name;
@@ -20,7 +8,7 @@
     $person = $type === 'teacher' ? $items->first()->teacher : null;
 @endphp
 
-<details open class="overflow-hidden rounded-xl border border-slate-200" x-show="anyMatch(@js($groupItems))" x-cloak>
+<details open class="overflow-hidden rounded-xl border border-slate-200">
     <summary class="flex cursor-pointer list-none items-center gap-3 bg-slate-50 px-4 py-3 text-left hover:bg-slate-100 [&::-webkit-details-marker]:hidden">
         @if ($person)
             <span class="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full">

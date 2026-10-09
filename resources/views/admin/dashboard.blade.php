@@ -2,7 +2,7 @@
     <x-portal.page-intro
         eyebrow="System Configuration"
         :title="$school->name"
-        meta="Manage academic structure, staff, assignments, and KPI settings for WISCA."
+        meta="Manage academic structure, staff, assignments, and KPI settings for WISCA PEMS."
     />
 
     @if ($currentSession)
@@ -16,6 +16,7 @@
     <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 mb-6">
         @foreach ([
             ['label' => 'Control Panel', 'count' => 'Brand', 'route' => 'admin.control-panel.edit'],
+            ['label' => 'Academic Period', 'count' => $currentSession?->name ?? 'Set up', 'route' => 'academic-period.show'],
             ['label' => 'Academic Sessions', 'count' => $stats['sessions'], 'route' => 'admin.sessions.index'],
             ['label' => 'Terms', 'count' => $stats['terms'], 'route' => 'admin.terms.index'],
             ['label' => 'Classes', 'count' => $stats['classes'], 'route' => 'admin.classes.index'],
@@ -36,7 +37,8 @@
 
     <x-portal.panel title="Quick actions" subtitle="Common setup tasks for a new term or session.">
         <div class="flex flex-wrap gap-3">
-            <a href="{{ route('admin.sessions.create') }}" class="inline-flex items-center rounded-lg bg-[#0f2d4a] px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-white transition hover:bg-[#163d63]">Add session</a>
+            <a href="{{ route('admin.sessions.create') }}" class="inline-flex items-center rounded-lg bg-[#0f2d4a] px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-white transition hover:bg-[#163d63]">Create / activate session</a>
+            <a href="{{ route('academic-period.show') }}" class="inline-flex items-center rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-slate-700 transition hover:bg-slate-50">Academic period</a>
             <a href="{{ route('admin.terms.create') }}" class="inline-flex items-center rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-slate-700 transition hover:bg-slate-50">Add term</a>
             <a href="{{ route('admin.users.create') }}" class="inline-flex items-center rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-slate-700 transition hover:bg-slate-50">Add staff member</a>
             <a href="{{ route('admin.assignments.create') }}" class="inline-flex items-center rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-slate-700 transition hover:bg-slate-50">Assign teacher</a>

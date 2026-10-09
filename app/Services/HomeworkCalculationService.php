@@ -93,7 +93,7 @@ class HomeworkCalculationService
         return now()->startOfDay()->max($start)->min($end)->toDateString();
     }
 
-    public function logsForCurrentWeek(AcademicSession $session, Term $term, ?int $teacherId = null): Collection
+    public function logsForCurrentWeek(AcademicSession $session, Term $term, ?int $teacherId = null, ?array $subjectIds = null): Collection
     {
         $window = $this->weekWindow($session, $term);
 
@@ -102,6 +102,7 @@ class HomeworkCalculationService
             ->where('term_id', $term->id)
             ->whereBetween('given_date', [$window['start']->toDateString(), $window['end']->toDateString()])
             ->when($teacherId, fn ($query) => $query->where('teacher_id', $teacherId))
+            ->when($subjectIds !== null, fn ($query) => $query->whereIn('subject_id', $subjectIds ?: [0]))
             ->whereHas('schoolClass', fn ($query) => $query->where('school_id', $session->school_id))
             ->with(['teacher', 'schoolClass', 'subject'])
             ->latest('given_date')

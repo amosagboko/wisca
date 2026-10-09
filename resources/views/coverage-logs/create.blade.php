@@ -9,7 +9,7 @@
     <x-portal.page-intro
         eyebrow="Appendix C"
         title="Curriculum Coverage Tracker"
-        meta="Evidence must reference learner workbook pages — not teacher photos alone."
+        meta="Record what was actually taught against an approved lesson plan. This is delivery, not HOD verification."
     />
 
     <x-portal.panel title="Topic coverage log">
@@ -31,6 +31,7 @@
 
                 <div>
                     <x-input-label for="topic_id" value="Topic (from approved scheme)" />
+                    <x-input-error :messages="$errors->get('term_id')" class="mt-2" />
                     <select id="topic_id" name="topic_id" required class="mt-1 block w-full rounded-md border-gray-300 bg-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                         <option value="">Select topic...</option>
                         @foreach ($schemes as $scheme)
@@ -72,7 +73,7 @@
                 </div>
 
                 <div class="flex flex-wrap gap-3 pt-2">
-                    <x-primary-button>Submit for Verification</x-primary-button>
+                    <x-primary-button>Record delivery</x-primary-button>
                     <a href="{{ route('coverage-logs.index') }}" class="inline-flex items-center rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-slate-700 transition hover:bg-slate-50">
                         Cancel
                     </a>

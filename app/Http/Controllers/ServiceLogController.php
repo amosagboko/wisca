@@ -221,7 +221,7 @@ class ServiceLogController extends Controller
     private function canAccess($user): bool
     {
         return $user->isAdmin()
-            || $user->isHoS()
+            || $user->isLeadership()
             || $user->isHoD()
             || $user->isTeacher()
             || $user->hasRole('student_life_coordinator');
@@ -230,7 +230,7 @@ class ServiceLogController extends Controller
     private function canVerify($user): bool
     {
         return $user->isAdmin()
-            || $user->isHoS()
+            || $user->isLeadership()
             || $user->hasRole('student_life_coordinator');
     }
 }

@@ -10,6 +10,8 @@ use App\Services\AtRiskCalculationService;
 use App\Services\AttendanceCalculationService;
 use App\Services\CurriculumDashboardService;
 use App\Services\DashboardService;
+use App\Services\HodReviewFeed;
+use App\Services\LeadershipReviewFeed;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -23,6 +25,8 @@ class DashboardController extends Controller
         CurriculumDashboardService $curriculum,
         AttendanceCalculationService $attendance,
         AtRiskCalculationService $atRisk,
+        HodReviewFeed $reviews,
+        LeadershipReviewFeed $leadership,
     ): View|RedirectResponse
     {
         /** @var User $user */
@@ -57,66 +61,89 @@ class DashboardController extends Controller
             return redirect()->route('stem.index');
         }
 
-        if ($user->isItConsultant()) {
+        if ($user->isIctCoordinator()) {
             return redirect()->route('lms.index');
         }
 
-        if ($user->isBoard() || $user->isHoS()) {
+        if ($user->isAdminManager()) {
+            return redirect()->route('portal-engagement.index');
+        }
+
+        if ($user->isChaplain()) {
+            return redirect()->route('chapel.index');
+        }
+
+        if ($user->isSubjectLead()) {
+            return redirect()->route('coverage-logs.index');
+        }
+
+        if ($user->isBoard() || $user->isHoS() || $user->isAssistantHead()) {
+            $allTerms = Term::where('academic_session_id', $session->id)
+                ->orderBy('start_date')->get();
+            $currentTerm = Term::currentForSession($session->id);
+            $termId = $request->has('term_id')
+                ? $request->integer('term_id')
+                : (int) ($currentTerm?->id ?? 0);
+            $term = $termId
+                ? $allTerms->firstWhere('id', $termId)
+                : $currentTerm;
+            $ops = $term
+                ? $leadership->compose($user, $session, $term)
+                : ['items' => collect(), 'counts' => [], 'week_number' => 1, 'review' => null];
+
             return view('dashboard.executive', [
                 'summary'     => $dashboard->executiveSummary($user->school_id, $session->id),
                 'session'     => $session,
                 'allSessions' => $allSessions,
+                'allTerms'    => $allTerms,
+                'term'        => $term,
+                'leadership'  => $ops,
+                'canReviewWeek' => $user->isHoS() || $user->isAssistantHead(),
             ]);
         }
 
         if ($user->isHoD()) {
-            // Additional server-side inbox filters
             $filterTeacherId = $request->integer('teacher_id');
             $filterClassId   = $request->integer('class_id');
             $filterSubjectId = $request->integer('subject_id');
-            $filterStatus    = $request->query('status', ''); // submitted|verified|rejected|''
+            $filterWeek      = $request->integer('week');
+            $filterGroup     = (string) $request->query('group', 'teacher');
 
             $allTerms = Term::where('academic_session_id', $session->id)
                 ->orderBy('start_date')->get();
-            $termId = $request->integer('term_id');
+            $currentTerm = Term::currentForSession($session->id);
+            $termId = $request->has('term_id')
+                ? $request->integer('term_id')
+                : (int) ($currentTerm?->id ?? 0);
 
-            $data = $curriculum->hodOperations($user->school_id, $session);
+            $user->loadMissing('department');
 
-            // Apply in-memory filters to each collection
-            if ($filterTeacherId) {
-                $data['pending']       = $data['pending']->where('teacher_id', $filterTeacherId)->values();
-                $data['pending_plans'] = $data['pending_plans']->where('teacher_id', $filterTeacherId)->values();
-                $data['homework_logs'] = $data['homework_logs']->where('teacher_id', $filterTeacherId)->values();
-                $data['observations']  = $data['observations']->where('teacher_id', $filterTeacherId)->values();
-                $data['coverage_rows'] = $data['coverage_rows']->filter(fn ($r) => $r['teacher_id'] === $filterTeacherId)->values();
-            }
-            if ($filterClassId) {
-                $data['pending']       = $data['pending']->where('school_class_id', $filterClassId)->values();
-                $data['pending_plans'] = $data['pending_plans']->where('school_class_id', $filterClassId)->values();
-                $data['homework_logs'] = $data['homework_logs']->where('school_class_id', $filterClassId)->values();
-                $data['attendance_logs'] = $data['attendance_logs']->where('school_class_id', $filterClassId)->values();
-                $data['observations']  = $data['observations']->where('school_class_id', $filterClassId)->values();
-                $data['coverage_rows'] = $data['coverage_rows']->filter(fn ($r) => $r['class_id'] === $filterClassId)->values();
-            }
-            if ($filterSubjectId) {
-                $data['pending']       = $data['pending']->where('subject_id', $filterSubjectId)->values();
-                $data['pending_plans'] = $data['pending_plans']->where('subject_id', $filterSubjectId)->values();
-                $data['homework_logs'] = $data['homework_logs']->where('subject_id', $filterSubjectId)->values();
-                $data['observations']  = $data['observations']->where('subject_id', $filterSubjectId)->values();
-                $data['coverage_rows'] = $data['coverage_rows']->filter(fn ($r) => $r['subject_id'] === $filterSubjectId)->values();
-            }
+            $data = $curriculum->hodOperations($user, $session, [
+                'term_id' => $termId,
+                'week' => $filterWeek,
+                'teacher_id' => $filterTeacherId,
+                'class_id' => $filterClassId,
+                'subject_id' => $filterSubjectId,
+                'group' => $filterGroup,
+            ]);
 
-            // Re-group after filtering
-            $data['pending_by_teacher'] = $data['pending']->groupBy('teacher_id');
-            $data['pending_by_class']   = $data['pending']->sortBy(fn ($l) => $l->schoolClass->name)->groupBy('school_class_id');
-            $data['plans_by_teacher']   = $data['pending_plans']->groupBy('teacher_id');
-            $data['plans_by_class']     = $data['pending_plans']->sortBy(fn ($p) => $p->schoolClass->name)->groupBy('school_class_id');
+            $data['pending_homework']   = $data['homework_logs']->filter(fn ($log) => $log->isSubmitted())->values();
+            $data['pending_attendance'] = $data['attendance_logs']->filter(fn ($log) => $log->isSubmitted())->values();
+            $data['pending_exams']      = ($data['exam_sittings'] ?? collect())
+                ->filter(fn ($row) => ($row['review_status'] ?? null) === 'submitted')
+                ->values();
+            $reviewAll = $reviews->compose($data, null);
+            $data['review_feed'] = $reviewAll->take(HodReviewFeed::INBOX_LIMIT)->values();
+            $data['review_feed_total'] = $reviewAll->count();
+            $data['review_feed_capped'] = $reviewAll->count() > HodReviewFeed::INBOX_LIMIT;
 
             $hodFilters = compact(
-                'sessionId', 'termId', 'filterTeacherId', 'filterClassId', 'filterSubjectId', 'filterStatus'
+                'sessionId', 'termId', 'filterTeacherId', 'filterClassId', 'filterSubjectId', 'filterWeek', 'filterGroup'
             );
             $hodActiveFilters = (bool) array_filter([
-                $filterTeacherId, $filterClassId, $filterSubjectId, $filterStatus,
+                $filterTeacherId, $filterClassId, $filterSubjectId, $filterWeek,
+                $filterGroup !== 'teacher',
+                $termId && $termId !== (int) ($currentTerm?->id ?? 0),
                 $sessionId && $sessionId !== ($allSessions->first()?->id ?? 0),
             ]);
 

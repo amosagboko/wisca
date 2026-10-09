@@ -8,6 +8,7 @@ use App\Models\SchoolClass;
 use App\Models\TeacherAssignment;
 use App\Models\Term;
 use App\Services\AttendanceCalculationService;
+use App\Services\CaptureLogReview;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -128,6 +129,7 @@ class AttendanceLogController extends Controller
     public function edit(AttendanceLog $attendanceLog): View
     {
         $this->assertCanWrite($attendanceLog);
+        abort_unless($attendanceLog->isEditableByTeacher(), 422, 'Verified attendance cannot be edited. Ask the HOD to return it first.');
 
         $user = auth()->user();
         $session = AcademicSession::currentForSchool($user->school_id);
@@ -149,6 +151,7 @@ class AttendanceLogController extends Controller
     public function destroy(AttendanceLog $attendanceLog, AttendanceCalculationService $calculator): RedirectResponse
     {
         $this->assertCanWrite($attendanceLog);
+        abort_unless($attendanceLog->isEditableByTeacher(), 422, 'Verified attendance cannot be removed.');
 
         $session = $attendanceLog->academicSession;
         $term = $attendanceLog->term;
@@ -195,21 +198,47 @@ class AttendanceLogController extends Controller
 
         $term = Term::currentForSession($session->id);
 
+        if ($log->exists && $log->isVerified()) {
+            return back()->withErrors([
+                'present_count' => 'Verified attendance cannot be edited. Ask the HOD to return it first.',
+            ])->withInput();
+        }
+
         $log->fill([
             ...$validated,
             'recorded_by' => $log->exists ? $log->recorded_by : $user->id,
             'academic_session_id' => $session->id,
             'term_id' => $term?->id,
-        ])->save();
+        ]);
+        app(CaptureLogReview::class)->markSubmitted($log);
+        $log->save();
 
         $calculator->recalculateForSession($session, $term);
 
-        return redirect()->route('attendance.index')->with('success', 'Attendance saved. AE-04 updated.');
+        return redirect()->route('attendance.index')->with('success', 'Attendance saved. AE-04 uses present vs enrolled. HOD still verifies the log.');
+    }
+
+    public function verify(AttendanceLog $attendanceLog, CaptureLogReview $review): RedirectResponse
+    {
+        $review->verify(auth()->user(), $attendanceLog);
+
+        return back()->with('success', 'HOD verified attendance evidence. Executive AE-04 still uses present vs enrolled.');
+    }
+
+    public function reject(Request $request, AttendanceLog $attendanceLog, CaptureLogReview $review): RedirectResponse
+    {
+        $validated = $request->validate([
+            'rejection_reason' => ['required', 'string', 'max:2000'],
+        ]);
+        $review->reject(auth()->user(), $attendanceLog, $validated['rejection_reason']);
+
+        return back()->with('success', 'Register returned for revision. The teacher can update the log.');
     }
 
     protected function assertCanWrite(AttendanceLog $log): void
     {
         $user = auth()->user();
+        $log->loadMissing('schoolClass');
         abort_unless($user->canRecordAttendance(), 403);
         abort_unless((int) $log->schoolClass?->school_id === (int) $user->school_id, 403);
 

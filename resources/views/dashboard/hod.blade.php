@@ -7,7 +7,7 @@
         <x-portal.page-intro
             eyebrow="Head of Department"
             title="Coverage Verification"
-            :meta="'Approve workbook evidence before AE-01 updates · session '.$session->name.'.'"
+            :meta="'Review lesson plans, coverage, homework, registers, and complete marksheets'.(($hod_department ?? null) ? ' for '.$hod_department->name : '').'. Teachers capture the evidence; you verify. '.$session->name.'.'"
         />
 
         {{-- Filter bar --}}
@@ -26,7 +26,7 @@
                 </div>
             @endif
 
-            @if ($allTerms->count() > 1)
+            @if ($allTerms->isNotEmpty())
                 <div>
                     <x-input-label for="hf_term" value="Term" />
                     <select id="hf_term" name="term_id"
@@ -35,6 +35,19 @@
                         @foreach ($allTerms as $t)
                             <option value="{{ $t->id }}" @selected($t->id === $f['termId'])>{{ $t->name }}</option>
                         @endforeach
+                    </select>
+                </div>
+            @endif
+
+            @if (($max_week ?? 1) > 1)
+                <div>
+                    <x-input-label for="hf_week" value="Week" />
+                    <select id="hf_week" name="week"
+                            class="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm">
+                        <option value="0" @selected(($f['filterWeek'] ?? 0) === 0)>All weeks</option>
+                        @for ($w = 1; $w <= (int) $max_week; $w++)
+                            <option value="{{ $w }}" @selected(($f['filterWeek'] ?? 0) === $w)>Week {{ $w }}</option>
+                        @endfor
                     </select>
                 </div>
             @endif
@@ -78,6 +91,16 @@
                 </div>
             @endif
 
+            <div>
+                <x-input-label for="hf_group" value="Group by" />
+                <select id="hf_group" name="group"
+                        class="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm">
+                    <option value="teacher" @selected(($f['filterGroup'] ?? 'teacher') === 'teacher')>Teacher</option>
+                    <option value="class" @selected(($f['filterGroup'] ?? 'teacher') === 'class')>Class</option>
+                    <option value="none" @selected(($f['filterGroup'] ?? 'teacher') === 'none')>None</option>
+                </select>
+            </div>
+
             <div class="flex gap-2 pt-5">
                 <x-primary-button type="submit">Apply</x-primary-button>
                 @if ($hodActiveFilters)
@@ -89,14 +112,23 @@
             </div>
         </form>
 
+        <x-portal.work-inbox
+            title="Reviews due"
+            :subtitle="($review_feed_capped ?? false)
+                ? 'Showing '.($review_feed?->count() ?? 0).' of '.$review_feed_total.' items. Filter or open Lesson plans for the rest. Gaps still appear when capture is missing.'
+                : 'Approve plans and verify coverage, homework, registers, and complete marksheets here. Behind-schedule topics needing catch-up also appear here.'"
+            :items="$review_feed ?? collect()"
+            empty="No reviews due. Capture gaps and at-risk follow-up appear here when evidence or a plan is still missing."
+        />
+
         <div class="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <div class="portal-enter rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Pending coverage</p>
-                <p class="mt-2 font-display text-3xl font-semibold text-[#0f2d4a]">{{ $pending->count() }}</p>
+                <p class="mt-2 font-display text-3xl font-semibold text-[#0f2d4a]">{{ $pending_coverage_total ?? $pending->count() }}</p>
             </div>
             <div class="portal-enter rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Pending plans</p>
-                <p class="mt-2 font-display text-3xl font-semibold text-[#0f2d4a]">{{ $pending_plans->count() }}</p>
+                <p class="mt-2 font-display text-3xl font-semibold text-[#0f2d4a]">{{ $pending_plan_total ?? $pending_plans->count() }}</p>
             </div>
             <div class="portal-enter rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Teachers in queue</p>
@@ -144,31 +176,99 @@
             </div>
         </div>
 
-        <x-portal.panel :title="'Pending lesson plans'.($pending_plans->count() ? ' ('.$pending_plans->count().')' : '')" subtitle="Approve before coverage can be logged.">
+        <x-portal.panel :title="'Pending lesson plans'.(($pending_plan_total ?? $pending_plans->count()) ? ' ('.($pending_plan_total ?? $pending_plans->count()).')' : '')" subtitle="Approve or return within 24 hours of submission. Teacher on-time (AE-05) is unchanged by this clock.">
             @if ($pending_plans->isEmpty())
                 <p class="text-sm text-slate-500">
                     {{ $hodActiveFilters ? 'No lesson plans match the current filters.' : 'No lesson plans awaiting approval.' }}
                 </p>
             @else
                 <div class="space-y-3">
-                    @foreach ($pending_plans as $plan)
-                        @include('dashboard.partials.hod-plan-card', ['plan' => $plan])
+                    @if (($queue_group ?? 'teacher') === 'none')
+                        @foreach ($pending_plans as $plan)
+                            @include('dashboard.partials.hod-plan-card', ['plan' => $plan])
+                        @endforeach
+                    @elseif (($queue_group ?? 'teacher') === 'class')
+                        @foreach ($plans_by_class as $items)
+                            @include('dashboard.partials.hod-queue-group', ['items' => $items, 'type' => 'class', 'card' => 'plan', 'label' => 'plan'])
+                        @endforeach
+                    @else
+                        @foreach ($plans_by_teacher as $items)
+                            @include('dashboard.partials.hod-queue-group', ['items' => $items, 'type' => 'teacher', 'card' => 'plan', 'label' => 'plan'])
+                        @endforeach
+                    @endif
+                </div>
+                @if (method_exists($pending_plans, 'hasPages') && $pending_plans->hasPages())
+                    <div class="mt-4">{{ $pending_plans->links() }}</div>
+                @endif
+            @endif
+        </x-portal.panel>
+
+        <x-portal.panel class="mt-6" :title="'Pending homework reviews'.(($pending_homework ?? collect())->count() ? ' ('.$pending_homework->count().')' : '')" subtitle="Verify given vs on-time evidence. Executive AE-03 still uses those counts.">
+            @if (($pending_homework ?? collect())->isEmpty())
+                <p class="text-sm text-slate-500">
+                    {{ $hodActiveFilters ? 'No submitted homework logs match the current filters.' : 'No homework logs awaiting review this week.' }}
+                </p>
+            @else
+                <div class="space-y-3">
+                    @foreach ($pending_homework as $log)
+                        @include('dashboard.partials.hod-homework-card', ['log' => $log])
                     @endforeach
                 </div>
             @endif
         </x-portal.panel>
 
-        <x-portal.panel class="mt-6" :title="'Pending coverage verifications'.($pending->count() ? ' ('.$pending->count().')' : '')" subtitle="Differentiate teachers by avatar and name; filter to a class when the queue is long.">
+        <x-portal.panel class="mt-6" :title="'Pending register reviews'.(($pending_attendance ?? collect())->count() ? ' ('.$pending_attendance->count().')' : '')" subtitle="Verify present vs enrolled. Executive AE-04 still uses those counts.">
+            @if (($pending_attendance ?? collect())->isEmpty())
+                <p class="text-sm text-slate-500">
+                    {{ $hodActiveFilters ? 'No submitted registers match the current filters.' : 'No registers awaiting review this week.' }}
+                </p>
+            @else
+                <div class="space-y-3">
+                    @foreach ($pending_attendance as $log)
+                        @include('dashboard.partials.hod-attendance-card', ['log' => $log])
+                    @endforeach
+                </div>
+            @endif
+        </x-portal.panel>
+
+        <x-portal.panel class="mt-6" :title="'Pending marksheet reviews'.(($pending_exams ?? collect())->count() ? ' ('.$pending_exams->count().')' : '')" subtitle="Verify a complete sitting. Executive AE-02 still uses scores vs enrolled.">
+            @if (($pending_exams ?? collect())->isEmpty())
+                <p class="text-sm text-slate-500">
+                    {{ $hodActiveFilters ? 'No complete marksheets match the current filters.' : 'No complete marksheets awaiting review.' }}
+                </p>
+            @else
+                <div class="space-y-3">
+                    @foreach ($pending_exams as $sitting)
+                        @include('dashboard.partials.hod-exam-card', ['sitting' => $sitting])
+                    @endforeach
+                </div>
+            @endif
+        </x-portal.panel>
+
+        <x-portal.panel class="mt-6" :title="'Pending coverage verifications'.(($pending_coverage_total ?? $pending->count()) ? ' ('.($pending_coverage_total ?? $pending->count()).')' : '')" subtitle="Differentiate teachers by avatar and name; filter to a class when the queue is long.">
             @if ($pending->isEmpty())
                 <p class="text-sm text-slate-500">
                     {{ $hodActiveFilters ? 'No coverage logs match the current filters.' : 'No pending verifications. All caught up.' }}
                 </p>
             @else
                 <div class="space-y-3">
-                    @foreach ($pending as $log)
-                        @include('dashboard.partials.hod-coverage-card', ['log' => $log])
-                    @endforeach
+                    @if (($queue_group ?? 'teacher') === 'none')
+                        @foreach ($pending as $log)
+                            @include('dashboard.partials.hod-coverage-card', ['log' => $log])
+                        @endforeach
+                    @elseif (($queue_group ?? 'teacher') === 'class')
+                        @foreach ($pending_by_class as $items)
+                            @include('dashboard.partials.hod-queue-group', ['items' => $items, 'type' => 'class', 'card' => 'coverage', 'label' => 'log'])
+                        @endforeach
+                    @else
+                        @foreach ($pending_by_teacher as $items)
+                            @include('dashboard.partials.hod-queue-group', ['items' => $items, 'type' => 'teacher', 'card' => 'coverage', 'label' => 'log'])
+                        @endforeach
+                    @endif
                 </div>
+                @if (method_exists($pending, 'hasPages') && $pending->hasPages())
+                    <div class="mt-4">{{ $pending->links() }}</div>
+                @endif
             @endif
         </x-portal.panel>
 
@@ -242,6 +342,7 @@
                                 <th class="px-5 py-3 font-semibold text-slate-600">Given</th>
                                 <th class="px-5 py-3 font-semibold text-slate-600">On time</th>
                                 <th class="px-5 py-3 font-semibold text-slate-600">Rate</th>
+                                <th class="px-5 py-3 font-semibold text-slate-600">Review</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -259,6 +360,7 @@
                                     <td class="px-5 py-3 text-slate-600">{{ $hw->given_count }}</td>
                                     <td class="px-5 py-3 text-slate-600">{{ $hw->completed_on_time_count }}</td>
                                     <td class="px-5 py-3 font-medium {{ $hwRate >= 0.95 ? 'text-emerald-700' : 'text-amber-700' }}">{{ number_format($hwRate * 100, 1) }}%</td>
+                                    <td class="px-5 py-3 capitalize text-slate-600">{{ $hw->status }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
@@ -280,6 +382,7 @@
                                 <th class="px-5 py-3 font-semibold text-slate-600">Recorded by</th>
                                 <th class="px-5 py-3 font-semibold text-slate-600">Present / Enrolled</th>
                                 <th class="px-5 py-3 font-semibold text-slate-600">Rate</th>
+                                <th class="px-5 py-3 font-semibold text-slate-600">Review</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -296,6 +399,7 @@
                                     </td>
                                     <td class="px-5 py-3 text-slate-600">{{ $att->present_count }} / {{ $att->enrolled_count }}</td>
                                     <td class="px-5 py-3 font-medium {{ $attRate >= 0.95 ? 'text-emerald-700' : 'text-amber-700' }}">{{ number_format($attRate * 100, 1) }}%</td>
+                                    <td class="px-5 py-3 capitalize text-slate-600">{{ $att->status }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
@@ -361,6 +465,46 @@
                 </p>
                 <a href="{{ route('exam-results.index') }}" class="text-xs font-semibold uppercase tracking-widest text-slate-500 hover:text-[#0f2d4a]">Open broad sheet</a>
             </div>
+        </x-portal.panel>
+
+        <x-portal.panel class="mt-6" :title="'Catch-up needed'.(($catch_up_needed_total ?? 0) ? ' ('.$catch_up_needed_total.')' : '')" subtitle="Active SoW topics behind the instructional week without verified coverage. You identify the gap — AE-01.4 counts it after you later verify delivery. This is not an IIP.">
+            @if (($catch_up_needed ?? collect())->isEmpty())
+                <p class="text-sm text-slate-500">
+                    {{ $hodActiveFilters ? 'No behind-schedule topics match the current filters.' : 'No behind-schedule Active SoW topics need catch-up in this department.' }}
+                </p>
+            @else
+                <div class="space-y-3">
+                    @foreach ($catch_up_needed as $topic)
+                        @include('dashboard.partials.hod-catch-up-card', ['topic' => $topic])
+                    @endforeach
+                </div>
+                @if (($catch_up_needed_total ?? 0) > $catch_up_needed->count())
+                    <p class="mt-4 text-xs text-slate-500">
+                        Showing {{ $catch_up_needed->count() }} of {{ $catch_up_needed_total }}.
+                        <a href="{{ route('curriculum-coverage.report') }}" class="font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">Open coverage report</a>
+                    </p>
+                @endif
+            @endif
+        </x-portal.panel>
+
+        <x-portal.panel class="mt-6" :title="'Plans needed'.(($at_risk['without_plan'] ?? 0) ? ' ('.$at_risk['without_plan'].')' : '')" subtitle="Identified learners without an active Tier 2/3 plan. You write the IIP — it is not created when a marksheet is verified.">
+            @if (($at_risk_without_plan ?? collect())->isEmpty())
+                <p class="text-sm text-slate-500">
+                    {{ ($at_risk['identified'] ?? 0) > 0 ? 'Every identified learner in this department has an active plan.' : 'No at-risk learners identified in this department.' }}
+                </p>
+            @else
+                <div class="space-y-3">
+                    @foreach ($at_risk_without_plan as $record)
+                        @include('dashboard.partials.hod-at-risk-card', ['record' => $record])
+                    @endforeach
+                </div>
+                @if (($at_risk['without_plan'] ?? 0) > $at_risk_without_plan->count())
+                    <p class="mt-4 text-xs text-slate-500">
+                        Showing {{ $at_risk_without_plan->count() }} of {{ $at_risk['without_plan'] }}.
+                        <a href="{{ route('at-risk.index', ['plan' => 'without_plan']) }}" class="font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">Open caseload</a>
+                    </p>
+                @endif
+            @endif
         </x-portal.panel>
 
         <x-portal.panel class="mt-6" title="At-risk learners" subtitle="Appendix F · AE-07. Identified learners (below pass mark or Concern) with an active Tier 2/3 plan. Target 100%.">

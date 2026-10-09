@@ -72,8 +72,11 @@ class KpiRecalculationService
             $run('AE-04', fn () => $this->attendance->recalculateForSession($session, $term));
         }
 
-        if ($match('weekly', 'ae-05') && $term) {
-            $run('AE-05', fn () => $this->lessonPlans->recalculateForSession($session, $term));
+        if ($match('weekly', 'ae-01.1b', 'ae-01.2', 'ae-01.3', 'ae-05') && $term) {
+            $run('AE-01 operational / AE-05', function () use ($session, $term) {
+                $this->lessonPlans->recalculateForSession($session, $term);
+                app(CurriculumCoverageKpiService::class)->recalculateForTerm($session, $term);
+            });
         }
 
         if ($match('termly', 'ae-02') && $term) {

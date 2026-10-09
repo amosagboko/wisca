@@ -11,7 +11,7 @@ class KpiPeriodicData extends Model
     protected $table = 'kpi_periodic_data';
 
     protected $fillable = [
-        'kpi_id', 'academic_session_id', 'term_id', 'school_class_id',
+        'kpi_id', 'measure_key', 'academic_session_id', 'term_id', 'school_class_id',
         'subject_id', 'teacher_id', 'target_value', 'actual_value',
         'achievement_rate', 'status', 'period_start', 'period_end', 'metadata',
     ];

@@ -78,6 +78,34 @@ class AtRiskLearner extends Model
         return $this->activePlan() !== null;
     }
 
+    public function isExamFlagged(): bool
+    {
+        return in_array(AtRiskCriteria::BELOW_PASS_MARK, $this->risk_factors ?? [], true);
+    }
+
+    public function suggestedPlanObjectives(): string
+    {
+        $name = $this->learner?->name ?? 'this learner';
+
+        if ($this->isExamFlagged()) {
+            return 'Raise '.$name.' above the pass mark in the verified subject(s) that triggered this flag, then review before the next sitting.';
+        }
+
+        return 'Address the recorded concern for '.$name.' with a targeted Tier 2/3 plan this term.';
+    }
+
+    public function suggestedPlanStrategies(): string
+    {
+        $lines = [];
+        if (filled($this->concern_note)) {
+            $lines[] = trim((string) $this->concern_note);
+        }
+        $lines[] = 'Small-group or one-to-one practice on the failed objectives.';
+        $lines[] = 'Check work weekly and record progress at the review date.';
+
+        return implode("\n", $lines);
+    }
+
     /** @return array<int, string> */
     public function factorLabels(): array
     {

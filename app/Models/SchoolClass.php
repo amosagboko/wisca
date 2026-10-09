@@ -18,9 +18,30 @@ class SchoolClass extends Model
         'school_id', 'name', 'level', 'display_order', 'status',
     ];
 
+    protected static function booted(): void
+    {
+        static::creating(function (SchoolClass $class) {
+            if ((int) $class->display_order > 0) {
+                return;
+            }
+
+            $class->display_order = static::nextDisplayOrderForSchool((int) $class->school_id);
+        });
+    }
+
+    public static function nextDisplayOrderForSchool(int $schoolId): int
+    {
+        return (int) static::query()->where('school_id', $schoolId)->max('display_order') + 1;
+    }
+
     public function school(): BelongsTo
     {
         return $this->belongsTo(School::class);
+    }
+
+    public function offeredSubjects(): BelongsToMany
+    {
+        return $this->belongsToMany(Subject::class, 'class_subjects')->withTimestamps();
     }
 
     public function subjects(): BelongsToMany

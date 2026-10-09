@@ -6,6 +6,7 @@ use App\Models\AcademicSession;
 use App\Models\HomeworkLog;
 use App\Models\TeacherAssignment;
 use App\Models\Term;
+use App\Services\CaptureLogReview;
 use App\Services\HomeworkCalculationService;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
@@ -19,7 +20,7 @@ class HomeworkLogController extends Controller
     {
         $user = auth()->user();
         abort_unless(
-            $user->isTeacher() || $user->isHoD() || $user->isHoS() || $user->isAdmin(),
+            $user->isTeacher() || $user->isHoD() || $user->isLeadership() || $user->isAdmin(),
             403
         );
 
@@ -118,6 +119,7 @@ class HomeworkLogController extends Controller
     {
         $user = auth()->user();
         abort_unless($user->isTeacher() && $homeworkLog->teacher_id === $user->id, 403);
+        abort_unless($homeworkLog->isEditableByTeacher(), 422, 'Verified homework cannot be edited. Ask the HOD to return it first.');
 
         $session = AcademicSession::currentForSchool($user->school_id);
 
@@ -140,6 +142,7 @@ class HomeworkLogController extends Controller
     {
         $user = auth()->user();
         abort_unless($user->isTeacher() && $homeworkLog->teacher_id === $user->id, 403);
+        abort_unless($homeworkLog->isEditableByTeacher(), 422, 'Verified homework cannot be removed.');
 
         $session = $homeworkLog->academicSession;
         $term = $homeworkLog->term;
@@ -182,6 +185,12 @@ class HomeworkLogController extends Controller
         [$classId, $subjectId] = array_map('intval', explode(':', $validated['assignment']));
         $term = Term::currentForSession($session->id);
 
+        if ($log->exists && $log->isVerified()) {
+            return back()->withErrors([
+                'title' => 'Verified homework cannot be edited. Ask the HOD to return it first.',
+            ])->withInput();
+        }
+
         $log->fill([
             'school_class_id' => $classId,
             'subject_id' => $subjectId,
@@ -194,11 +203,30 @@ class HomeworkLogController extends Controller
             'teacher_id' => $user->id,
             'academic_session_id' => $session->id,
             'term_id' => $term?->id,
-        ])->save();
+        ]);
+        app(CaptureLogReview::class)->markSubmitted($log);
+        $log->save();
 
         $calculator->recalculateForSession($session, $term);
 
-        return redirect()->route('homework.index')->with('success', 'Homework log saved. AE-03 updated.');
+        return redirect()->route('homework.index')->with('success', 'Homework log saved. AE-03 uses given vs on-time counts. HOD still verifies the log.');
+    }
+
+    public function verify(HomeworkLog $homeworkLog, CaptureLogReview $review): RedirectResponse
+    {
+        $review->verify(auth()->user(), $homeworkLog);
+
+        return back()->with('success', 'HOD verified homework evidence. Executive AE-03 still uses given vs on-time counts.');
+    }
+
+    public function reject(Request $request, HomeworkLog $homeworkLog, CaptureLogReview $review): RedirectResponse
+    {
+        $validated = $request->validate([
+            'rejection_reason' => ['required', 'string', 'max:2000'],
+        ]);
+        $review->reject(auth()->user(), $homeworkLog, $validated['rejection_reason']);
+
+        return back()->with('success', 'Homework returned for revision. The teacher can update the log.');
     }
 
     protected function assignments($user, int $sessionId)

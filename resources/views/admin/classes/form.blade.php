@@ -29,12 +29,6 @@
             </div>
 
             <div>
-                <x-input-label for="display_order" value="Display order" />
-                <x-text-input id="display_order" name="display_order" type="number" min="0" class="block mt-1 w-full" :value="old('display_order', $class->display_order ?? 0)" />
-                <x-input-error :messages="$errors->get('display_order')" class="mt-2" />
-            </div>
-
-            <div>
                 <x-input-label for="status" value="Status" />
                 <select id="status" name="status" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                     @foreach (['active', 'inactive'] as $status)

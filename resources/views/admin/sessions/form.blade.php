@@ -6,7 +6,7 @@
     <x-portal.page-intro
         eyebrow="Configuration"
         :title="$isEdit ? 'Edit academic session' : 'New academic session'"
-        meta="Sessions group terms and drive reporting periods across WISCA."
+        meta="Create a school year and, as System Admin, activate it immediately. No Head of School or Board approval is required."
     />
 
     <x-portal.panel :title="$isEdit ? $session->name : 'Session details'">
@@ -35,25 +35,33 @@
                 </div>
             </div>
 
-            <div>
-                <x-input-label for="status" value="Status" />
-                <select id="status" name="status" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-                    @foreach (['upcoming', 'active', 'closed'] as $status)
-                        <option value="{{ $status }}" @selected(old('status', $session->status) === $status)>{{ ucfirst($status) }}</option>
-                    @endforeach
-                </select>
-                <x-input-error :messages="$errors->get('status')" class="mt-2" />
-            </div>
+            @unless ($isEdit)
+                <div class="rounded-xl border border-slate-200 bg-slate-50/80 p-4 space-y-3" x-data="{ activate: true }">
+                    <label class="inline-flex items-start gap-3">
+                        <input type="checkbox" name="activate" value="1" x-model="activate" class="mt-1 rounded border-gray-300 text-[#0f2d4a] focus:ring-[#0f2d4a]" checked>
+                        <span>
+                            <span class="block text-sm font-semibold text-slate-800">Activate this session now</span>
+                            <span class="mt-1 block text-xs text-slate-500">Makes it the current school year. A First Term is created from these dates so the period can open. You can add Second Term and Third Term afterwards. Admin does not need approval.</span>
+                        </span>
+                    </label>
+                    <div x-cloak x-show="activate">
+                        <x-input-label for="first_term_name" value="First term name" />
+                        <x-text-input id="first_term_name" name="first_term_name" type="text" class="block mt-1 w-full" :value="old('first_term_name', 'First Term')" />
+                    </div>
+                </div>
+            @endunless
 
-            <div>
-                <label class="inline-flex items-center gap-2">
-                    <input type="checkbox" name="is_current" value="1" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500" @checked(old('is_current', $session->is_current))>
-                    <span class="text-sm text-slate-700">Set as current academic session</span>
-                </label>
-            </div>
+            @if ($isEdit)
+                <p class="text-sm text-slate-600">
+                    Status: <span class="font-medium capitalize">{{ $session->status ?? 'upcoming' }}</span>
+                    @if ($session->is_current)
+                        · current
+                    @endif
+                </p>
+            @endif
 
             <div class="flex flex-wrap gap-3 pt-2">
-                <x-primary-button>{{ $isEdit ? 'Save changes' : 'Create session' }}</x-primary-button>
+                <x-primary-button>{{ $isEdit ? 'Save changes' : 'Create and activate session' }}</x-primary-button>
                 <a href="{{ route('admin.sessions.index') }}" class="inline-flex items-center rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-slate-700 transition hover:bg-slate-50">Cancel</a>
             </div>
         </form>

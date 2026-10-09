@@ -2,13 +2,16 @@
     <x-portal.page-intro
         eyebrow="Configuration"
         title="Academic Sessions"
-        meta="Define school years and mark which session is currently active."
+        meta="Create a school year here. System Admin can activate it immediately — no Head of School or Board approval."
     />
 
-    <div class="mb-4 flex justify-end">
-        <a href="{{ route('admin.sessions.create') }}" class="inline-flex items-center rounded-lg bg-[#0f2d4a] px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-white transition hover:bg-[#163d63]">
-            Add session
-        </a>
+    <div class="mb-4 flex justify-end gap-3">
+            <a href="{{ route('academic-period.show') }}" class="inline-flex items-center rounded-lg border border-[#0f2d4a] px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-[#0f2d4a] transition hover:bg-slate-50">
+                Academic period
+            </a>
+            <a href="{{ route('admin.sessions.create') }}" class="inline-flex items-center rounded-lg bg-[#0f2d4a] px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-white transition hover:bg-[#163d63]">
+                Create / activate session
+            </a>
     </div>
 
     <x-portal.panel title="All sessions">
@@ -35,15 +38,18 @@
                                 @if ($session->is_current)
                                     <span class="rounded bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-800">Current</span>
                                 @else
-                                    <form method="POST" action="{{ route('admin.sessions.set-current', $session) }}" class="inline">
-                                        @csrf
-                                        <button type="submit" class="text-xs font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">Set current</button>
-                                    </form>
+                                    <span class="text-xs text-slate-400">—</span>
                                 @endif
                             </td>
                             <td class="px-5 py-3 text-right space-x-2">
                                 <a href="{{ route('admin.sessions.edit', $session) }}" class="text-xs font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">Edit</a>
                                 @unless ($session->is_current)
+                                    @if ($session->terms_count > 0 && $session->status !== 'closed')
+                                        <form method="POST" action="{{ route('admin.sessions.activate', $session) }}" class="inline" onsubmit="return confirm('Activate {{ $session->name }} as the current academic session? The previous current session will be closed. Admin does not need further approval.')">
+                                            @csrf
+                                            <button type="submit" class="text-xs font-semibold uppercase tracking-wide text-emerald-700 hover:underline">Activate</button>
+                                        </form>
+                                    @endif
                                     <form method="POST" action="{{ route('admin.sessions.destroy', $session) }}" class="inline" onsubmit="return confirm('Delete this session?')">
                                         @csrf
                                         @method('DELETE')

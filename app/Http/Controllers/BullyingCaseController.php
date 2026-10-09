@@ -178,7 +178,7 @@ class BullyingCaseController extends Controller
     private function canAccess($user): bool
     {
         return $user->isAdmin()
-            || $user->isHoS()
+            || $user->isLeadership()
             || $user->isHoD()
             || $user->isTeacher()
             || $user->hasRole('chaplain')

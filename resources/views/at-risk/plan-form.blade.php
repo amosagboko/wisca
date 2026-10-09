@@ -6,7 +6,7 @@
     <x-portal.page-intro
         eyebrow="Appendix F · AE-07"
         :title="$isEdit ? 'Update plan' : 'Learner academic intervention plan'"
-        :meta="$record->learner->name.' · '.$record->schoolClass->name.'. Set status to Active for the plan to count in AE-07.'"
+        :meta="$record->learner->name.' · '.$record->schoolClass->name.'. Set status to Active for the plan to count in AE-07.'.($record->isExamFlagged() && ! $isEdit ? ' Objectives and strategies start from the verified below-pass flag — edit them before saving.' : '')"
     />
 
     <x-portal.panel :title="$isEdit ? 'Edit plan' : 'Plan details'">

@@ -1,7 +1,7 @@
-# WISCA Strategy Monitor — User Manual
+# WISCA PEMS — User Manual
 
 **School:** Wisdom Christian Academy (WISCA)  
-**Product:** WISCA Strategy Monitor  
+**Product:** WISCA PEMS  
 **Audience:** Board, Head of School, Heads of Department, teachers, officers, coordinators, IT, and System Admin  
 **Version:** aligned to the locked Excel-to-app rules (`chambers/WISCA-Excel-to-App-Rules.md`)
 
@@ -33,7 +33,7 @@ This manual walks you through the whole application: how to sign in, what each r
 
 ## 1. What WISCA is
 
-WISCA Strategy Monitor is **not** a full school LMS. It is a **strategy and accountability portal** that measures whether the school is delivering its Board strategy across three pillars:
+WISCA PEMS is **not** a full school LMS. It is a **strategy and accountability portal** that measures whether the school is delivering its Board strategy across three pillars:
 
 | Pillar | KPI codes | Count |
 |---|---|---|
@@ -76,7 +76,7 @@ Change passwords in production. Demo emails are listed in §3.
 
 ### 2.4 First things to notice
 
-- **Left sidebar** — navigation for your role; school name (and logo if uploaded) at the top.
+- **Left sidebar** — three strategy pillars (Academic Excellence, Christcentric Education, Digital Innovation). Open a pillar, then click an **activity**. Measurable sub-activities assigned to your role appear as **tabs** on that activity page (not as extra sidebar lines). School name (and logo if uploaded) sit at the top.
 - **Academic session chip** — shows the school’s current session (for example `2025/2026`).
 - **Top area** — page title for where you are.
 - **Account** — **My Profile** for your name, password, and passport photo.
@@ -96,11 +96,14 @@ Change passwords in production. Demo emails are listed in §3.
 | **Admin Officer** | Class roll, attendance, chapel assistance |
 | **Learning Support Coordinator** | At-risk learners and intervention plans |
 | **Literacy Coordinator** | Reading progress assessments |
-| **Chaplain** | Chapel, bullying cases, scripture (often via direct module links) |
-| **Student Life Coordinator** | Character ratings, community service |
-| **Parent Relations Lead** | Parent partnership commitments |
-| **IT Consultant** | LMS, digital ethics, competency support, parent portal engagement |
+| **Chaplain** | Chapel, character recognition, restorative follow-up, scripture, parent Christian culture |
+| **Student Life Coordinator** | Character ratings, community service, and other Christcentric activities they already use |
+| **Parent Relations Lead** | Parent partnership commitments and parent portal engagement |
+| **ICT Coordinator** | LMS, STEM scheduling, digital competency, e-assessment, parent portal orientation |
+| **Admin Manager** | Portal feedback and parent portal enrolment / follow-up |
 | **STEM Coordinator** | STEM / coding project completion |
+| **Assistant Head (Secondary)** | Oversight of the full three-pillar tree with Head of School |
+| **Subject Lead** | Curriculum coverage |
 | **System Admin** | School structure, staff, KPI metadata, control panel, look-up lists |
 
 ### 3.2 Where you land after login
@@ -110,7 +113,10 @@ Change passwords in production. Demo emails are listed in §3.
 | System Admin | `/admin` — Admin Hub |
 | Parent Relations Lead | `/partnership` |
 | STEM Coordinator | `/stem` |
-| IT Consultant | `/lms` |
+| ICT Coordinator | `/lms` |
+| Admin Manager | `/portal-engagement` |
+| Chaplain | `/chapel` |
+| Subject Lead | `/coverage-logs` |
 | Everyone else with a dashboard | `/dashboard` (role-specific layout) |
 
 ### 3.3 Demo accounts (training seed)
@@ -128,7 +134,7 @@ Change passwords in production. Demo emails are listed in §3.
 | `chaplain@wisca.test` | Chaplain |
 | `slc@wisca.test` | Student Life Coordinator |
 | `prl@wisca.test` | Parent Relations Lead |
-| `it@wisca.test` | IT Consultant |
+| `it@wisca.test` | ICT Coordinator |
 | `stem@wisca.test` | STEM Coordinator |
 
 Password for all demo users: **`password`**.
@@ -137,7 +143,13 @@ Password for all demo users: **`password`**.
 
 ## 4. Common screens and habits
 
-### 4.1 Filters (session / term / class)
+### 4.1 Activity tabs
+
+Each activity page shows **only the measurable sub-activities assigned to your role** (from the WISCA v2 Responsibility column). Head of School, Assistant Head, Board, and System Admin see every tab for that activity. Specialist roles attached to an activity (for example Subject Lead on Curriculum Coverage) also see every tab there. Open a tab to see target, frequency, responsibility, and evidence. Tabs marked **Your work** belong to your role. The register or form below the tabs is shared for the whole activity.
+
+Bookmark a tab with `?sub=2` (or another tab number) on the activity URL.
+
+### 4.2 Filters (session / term / class)
 
 Most operational pages let you filter by:
 
@@ -147,7 +159,7 @@ Most operational pages let you filter by:
 
 **Tip:** Always confirm the session and term before you enter data. Wrong period = wrong KPI week/term.
 
-### 4.2 Lists, create, edit
+### 4.3 Lists, create, edit
 
 Pattern used almost everywhere:
 
@@ -157,7 +169,7 @@ Pattern used almost everywhere:
 4. Fill the form and **Save**.
 5. Edit or delete later from the list when your role allows.
 
-### 4.3 Verification / approval (important)
+### 4.4 Verification / approval (important)
 
 Only some workflows need a second person:
 
@@ -169,7 +181,7 @@ Only some workflows need a second person:
 
 Until coverage or lesson plans are approved, related KPIs will not move as expected.
 
-### 4.4 Marksheets
+### 4.5 Marksheets
 
 Several DI/CE modules use a **record / marksheet** page:
 
@@ -463,12 +475,14 @@ Officers also get an **Attendance Week** summary on their dashboard.
 
 1. Open **Lesson Plans** → create for the topic / week.
 2. Complete objectives, activities, assessment, resources.
-3. Submit **on time** (before the Monday due expectation used by the school).
+3. Submit **on time** (before the school planning-policy due day; default Thursday).
 
 **HoD / HoS steps**
 
 1. Open pending plans from the dashboard queue or Lesson Plans list.
-2. **Approve** or **Reject** (with reason).
+2. Complete the **quality checklist** (alignment, quality, engagement, assessment).
+3. **Approve** only when every item passes, or **Return** with a reason if any item fails.
+4. Decide within **24 hours** of submission (AE-05.3).
 
 Approved plans unlock coverage logging for AE-01.
 
@@ -771,7 +785,7 @@ Learning Support dashboard highlights below-pass learners still unflagged.
 ### 12.3 Head of Department
 
 1. Start on the **Verification Queue** dashboard.  
-2. Approve lesson plans; verify coverage logs.  
+2. Review lesson plans against the quality checklist, then approve or return; verify coverage logs.  
 3. Drive exam marksheets (AE-02).  
 4. Support homework, attendance visibility, observations as authorised.
 
@@ -803,7 +817,7 @@ Learning Support dashboard highlights below-pass learners still unflagged.
 1. Take **chapel** rolls for held sessions.  
 2. Manage **bullying** cases to closed + safety plan.  
 3. Run **scripture** assessments.  
-   *(If a module is missing from your sidebar, open it via the URL paths in §§10–11 or ask Admin to confirm your role.)*
+4. Open **Christcentric Education** in the sidebar for the full v2 sub-activity list.
 
 ### 12.9 Student Life Coordinator
 
@@ -816,7 +830,7 @@ Learning Support dashboard highlights below-pass learners still unflagged.
 2. Record charter signatures.  
 3. Coordinate with Admin on guardian registry completeness.
 
-### 12.11 IT Consultant
+### 12.11 ICT Coordinator
 
 1. Weekly **LMS** marksheet.  
 2. Termly **ethics** audits.  

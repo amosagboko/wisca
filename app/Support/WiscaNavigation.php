@@ -4,11 +4,12 @@ namespace App\Support;
 
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Route;
 
 class WiscaNavigation
 {
     /**
-     * @return array<int, array{label: string, items: array<int, array<string, mixed>}>}
+     * @return array<int, array<string, mixed>>
      */
     public static function groups(?User $user = null): array
     {
@@ -17,21 +18,27 @@ class WiscaNavigation
             return [static::accountGroup()];
         }
 
-        $groups = match (true) {
-            $user->isAdmin() => static::adminGroups(),
-            $user->isAdminOfficer() => static::officerGroups(),
-            $user->isLearningSupport() => static::supportGroups(),
-            $user->isLiteracyCoordinator() => static::literacyGroups(),
-            $user->isStudentLifeCoordinator() => static::studentLifeGroups(),
-            $user->isParentRelationsLead() => static::parentRelationsGroups(),
-            $user->isItConsultant() => static::itConsultantGroups(),
-            $user->isStemCoordinator() => static::stemCoordinatorGroups(),
-            $user->isBoard() => static::executiveGroups(),
-            $user->isHoS() => static::hosGroups(),
-            $user->isHoD() => static::hodGroups(),
-            $user->isTeacher() => static::teacherGroups(),
-            default => static::executiveGroups(),
-        };
+        $groups = [];
+
+        if ($user->isAdmin()) {
+            $groups = array_merge($groups, static::adminLeadGroups());
+        } else {
+            $home = static::homeGroup($user);
+            if ($home) {
+                $groups[] = $home;
+            }
+        }
+
+        $groups = array_merge($groups, static::pillarGroups($user));
+
+        $supporting = static::supportingGroup($user);
+        if ($supporting) {
+            $groups[] = $supporting;
+        }
+
+        if ($user->isAdmin()) {
+            $groups = array_merge($groups, static::adminLookupsAndStrategy());
+        }
 
         $groups[] = static::accountGroup();
 
@@ -42,58 +49,12 @@ class WiscaNavigation
     {
         $user ??= Auth::user();
         if (! $user instanceof User) {
-            return 'WISCA';
+            return 'WISCA PEMS';
         }
 
-        if ($user->isAdmin()) {
-            return 'Administration';
-        }
+        $label = RoleLabels::label($user->getRoleNames()->first());
 
-        if ($user->isBoard()) {
-            return 'Board';
-        }
-
-        if ($user->isHoS()) {
-            return 'Head of School';
-        }
-
-        if ($user->isHoD()) {
-            return 'Head of Department';
-        }
-
-        if ($user->isAdminOfficer()) {
-            return 'Admin Officer';
-        }
-
-        if ($user->isLearningSupport()) {
-            return 'Learning Support';
-        }
-
-        if ($user->isLiteracyCoordinator()) {
-            return 'Literacy Coordinator';
-        }
-
-        if ($user->isStudentLifeCoordinator()) {
-            return 'Student Life Coordinator';
-        }
-
-        if ($user->isParentRelationsLead()) {
-            return 'Parent Relations Lead';
-        }
-
-        if ($user->isItConsultant()) {
-            return 'IT Consultant';
-        }
-
-        if ($user->isStemCoordinator()) {
-            return 'STEM Coordinator';
-        }
-
-        if ($user->isTeacher()) {
-            return 'Teacher';
-        }
-
-        return 'WISCA';
+        return $label === '—' ? 'WISCA PEMS' : $label;
     }
 
     public static function homeRoute(): string
@@ -112,8 +73,20 @@ class WiscaNavigation
             return route('stem.index');
         }
 
-        if ($user instanceof User && $user->isItConsultant()) {
+        if ($user instanceof User && $user->isIctCoordinator()) {
             return route('lms.index');
+        }
+
+        if ($user instanceof User && $user->isAdminManager()) {
+            return route('portal-engagement.index');
+        }
+
+        if ($user instanceof User && $user->isChaplain()) {
+            return route('chapel.index');
+        }
+
+        if ($user instanceof User && $user->isSubjectLead()) {
+            return route('coverage-logs.index');
         }
 
         return route('dashboard');
@@ -123,73 +96,265 @@ class WiscaNavigation
     {
         $route = request()->route()?->getName();
 
-        foreach (static::groups() as $group) {
-            foreach ($group['items'] as $item) {
-                $patterns = $item['active'] ?? [$item['route'] ?? null];
-                $patterns = is_array($patterns) ? $patterns : [$patterns];
+        if ($route === 'activities.coming-soon') {
+            $slug = (string) request()->route('activity');
+            $activity = WiscaOperationalCatalog::findActivity($slug);
 
-                foreach ($patterns as $pattern) {
-                    if ($pattern && $route && (request()->routeIs($pattern) || $route === $pattern)) {
-                        return $item['label'];
-                    }
-                }
+            return $activity['label'] ?? 'Coming later';
+        }
+
+        foreach (static::walkItems(static::groups()) as $item) {
+            if (static::itemIsActive($item)) {
+                return $item['label'];
             }
         }
 
         return match (true) {
             str_starts_with($route ?? '', 'admin.dashboard') => 'Admin Hub',
             str_starts_with($route ?? '', 'admin.control-panel.') => 'Control Panel',
+            str_starts_with($route ?? '', 'academic-period.') => 'Academic Period',
+            $route === 'admin.sessions.create' => 'Create / activate session',
             str_starts_with($route ?? '', 'admin.sessions.') => 'Academic Sessions',
             str_starts_with($route ?? '', 'admin.terms.') => 'Terms',
             str_starts_with($route ?? '', 'admin.classes.') => 'Classes',
+            str_starts_with($route ?? '', 'admin.departments.') => 'Departments',
             str_starts_with($route ?? '', 'admin.subjects.') => 'Subjects',
             str_starts_with($route ?? '', 'admin.users.') => 'Staff & Teachers',
             str_starts_with($route ?? '', 'admin.assignments.') => 'Teacher Assignments',
             str_starts_with($route ?? '', 'admin.kpis.') => 'KPI Settings',
             str_starts_with($route ?? '', 'status-thresholds.') => 'Status Thresholds',
+            str_starts_with($route ?? '', 'planning-policy.') => 'Planning Policy',
+            str_starts_with($route ?? '', 'curriculum-coverage.') => 'Curriculum Coverage',
+            str_starts_with($route ?? '', 'catch-ups.') => 'Curriculum Coverage',
             $route === 'coverage-logs.create' => 'Log Coverage',
-            str_starts_with($route ?? '', 'lesson-plans.') => 'Lesson Plans',
-            str_starts_with($route ?? '', 'homework.') => 'Homework',
-            str_starts_with($route ?? '', 'attendance.') => 'Attendance',
-            str_starts_with($route ?? '', 'observations.') => 'Observations',
+            str_starts_with($route ?? '', 'lesson-plans.') => 'Lesson Plan/Note Submission & Approval',
+            str_starts_with($route ?? '', 'homework.') => 'Homework/Class Work Completion Rate',
+            str_starts_with($route ?? '', 'attendance.') => 'Learner Attendance Rate',
+            str_starts_with($route ?? '', 'observations.') => 'Effective or Better Lesson Observations',
             str_starts_with($route ?? '', 'learners.') => 'Class Roll',
-            str_starts_with($route ?? '', 'exam-results.') => 'Examination Results',
-            str_starts_with($route ?? '', 'at-risk.') => 'At-Risk Learners',
+            str_starts_with($route ?? '', 'exam-results.') => 'School-wide Examination Pass Rate',
+            str_starts_with($route ?? '', 'at-risk.') => 'At-Risk Learners with Active Intervention Plan',
             str_starts_with($route ?? '', 'intervention-plans.') => 'Intervention Plan',
-            str_starts_with($route ?? '', 'chapel.') => 'Chapel & Assembly',
+            str_starts_with($route ?? '', 'chapel.') => 'Daily Devotion & Chapel Participation',
             str_starts_with($route ?? '', 'admin.chapel-activity-types.') => 'Activity Types',
             str_starts_with($route ?? '', 'admin.chapel-sessions.') => 'Chapel Sessions',
             str_starts_with($route ?? '', 'admin.character-domains.') => 'Character Domains',
-            str_starts_with($route ?? '', 'character.') => 'Character Development',
+            str_starts_with($route ?? '', 'character.') => 'Christian Character Rating (Secure +)',
             str_starts_with($route ?? '', 'admin.service-activity-types.') => 'Service Activity Types',
-            str_starts_with($route ?? '', 'service.') => 'Community Service',
+            str_starts_with($route ?? '', 'service.') => 'Community Service Hours Per Learner',
             str_starts_with($route ?? '', 'admin.discipline-incident-types.') => 'Discipline Incident Types',
-            str_starts_with($route ?? '', 'discipline.') => 'Restorative Discipline',
+            str_starts_with($route ?? '', 'discipline.') => 'Resolved Restorative Discipline Cases',
             str_starts_with($route ?? '', 'admin.bullying-case-types.') => 'Bullying Case Types',
-            str_starts_with($route ?? '', 'bullying.') => 'Anti-Bullying Cases',
+            str_starts_with($route ?? '', 'bullying.') => 'Bullying Incident Resolution Rate',
             str_starts_with($route ?? '', 'admin.scripture-passages.') => 'Scripture Passages',
-            str_starts_with($route ?? '', 'scripture.') => 'Scripture Mastery',
+            str_starts_with($route ?? '', 'scripture.') => 'Scripture Memory & Application Mastery',
             str_starts_with($route ?? '', 'admin.partnership-charters.') => 'Partnership Charters',
             str_starts_with($route ?? '', 'admin.guardians.') => 'Parent Registry',
-            str_starts_with($route ?? '', 'partnership.') => 'Parent Partnership',
-            str_starts_with($route ?? '', 'lms.') => 'LMS Adoption',
+            str_starts_with($route ?? '', 'partnership.') => 'Parent-School Christian Culture Alignment',
+            str_starts_with($route ?? '', 'lms.') => 'Digital Portal and LMS Adoption',
             str_starts_with($route ?? '', 'admin.stem-project-types.') => 'STEM Project Types',
-            str_starts_with($route ?? '', 'stem.') => 'STEM Projects',
+            str_starts_with($route ?? '', 'stem.') => 'Learner Coding & STEM Practical Completion',
             str_starts_with($route ?? '', 'admin.digital-ethics-audit-types.') => 'Digital Ethics Audit Types',
-            str_starts_with($route ?? '', 'ethics.') => 'Digital Ethics Audits',
+            str_starts_with($route ?? '', 'ethics.') => 'AI & Technology Ethics Compliance',
             str_starts_with($route ?? '', 'admin.digital-competency-areas.') => 'Digital Competency Areas',
-            str_starts_with($route ?? '', 'competency.') => 'Staff Digital Competency',
-            str_starts_with($route ?? '', 'eassessment.') => 'E-Assessment Usage',
-            str_starts_with($route ?? '', 'portal-engagement.') => 'Parent Portal Engagement',
+            str_starts_with($route ?? '', 'competency.') => 'Staff Digital Competency Mastery',
+            str_starts_with($route ?? '', 'eassessment.') => 'Digital Assessment & E-Portfolio Usage',
+            str_starts_with($route ?? '', 'portal-engagement.') => 'Parent Portal Engagement Rate',
+            str_starts_with($route ?? '', 'reading.') => 'Literacy Progress (≥1 Year Growth)',
+            str_starts_with($route ?? '', 'schemes.') => 'Curriculum Coverage Rate',
+            str_starts_with($route ?? '', 'coverage-logs.') => 'Curriculum Coverage Rate',
             str_starts_with($route ?? '', 'profile.') => 'My Profile',
             default => static::areaLabel(),
         };
     }
 
+    public static function itemHref(array $item): ?string
+    {
+        $route = $item['route'] ?? null;
+        if (! $route || ! Route::has($route)) {
+            return null;
+        }
+
+        return route($route, $item['params'] ?? []);
+    }
+
+    public static function itemIsActive(array $item): bool
+    {
+        $patterns = $item['active'] ?? [$item['route'] ?? null];
+        $patterns = is_array($patterns) ? $patterns : [$patterns];
+
+        foreach ($patterns as $pattern) {
+            if (! $pattern || ! request()->routeIs($pattern)) {
+                continue;
+            }
+
+            $expected = $item['params']['activity'] ?? null;
+            if ($expected && request()->route('activity') !== $expected) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function navRoleNames(User $user): array
+    {
+        $roles = $user->getRoleNames()->all();
+
+        if (in_array('it_consultant', $roles, true) && ! in_array('ict_coordinator', $roles, true)) {
+            $roles[] = 'ict_coordinator';
+        }
+
+        return $roles;
+    }
+
+    public static function seesFullTree(User $user): bool
+    {
+        return $user->isAdmin()
+            || $user->isHoS()
+            || $user->isAssistantHead()
+            || $user->isBoard();
+    }
+
+    /**
+     * Sub-activities this user may see (v2 Responsibility), including oversight and extra_roles.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public static function visibleSubs(array $activity, User $user): array
+    {
+        return WiscaOperationalCatalog::visibleChildren(
+            $activity,
+            static::navRoleNames($user),
+            static::seesFullTree($user)
+        );
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    protected static function pillarGroups(User $user): array
+    {
+        $groups = [];
+
+        foreach (WiscaOperationalCatalog::pillars() as $pillar) {
+            $activities = [];
+
+            foreach ($pillar['activities'] as $activity) {
+                $children = static::visibleSubs($activity, $user);
+
+                if ($children === []) {
+                    continue;
+                }
+
+                $activities[] = [
+                    'label' => $activity['label'],
+                    'icon' => $activity['icon'],
+                    'route' => $activity['route'],
+                    'active' => $activity['active'],
+                    'params' => $activity['params'] ?? [],
+                    'children' => $children,
+                ];
+            }
+
+            if ($activities === []) {
+                continue;
+            }
+
+            $groups[] = [
+                'type' => 'pillar',
+                'label' => $pillar['label'],
+                'icon' => $pillar['icon'],
+                'items' => $activities,
+            ];
+        }
+
+        return $groups;
+    }
+
+    /**
+     * @return array{label: string, items: array<int, array<string, mixed>>}|null
+     */
+    protected static function homeGroup(User $user): ?array
+    {
+        if ($user->isParentRelationsLead() || $user->isStemCoordinator() || $user->isIctCoordinator() || $user->isAdminManager()) {
+            return null;
+        }
+
+        if ($user->isBoard() || $user->isHoS() || $user->isAssistantHead()) {
+            $items = [
+                ['route' => 'dashboard', 'active' => ['dashboard'], 'label' => 'Executive Dashboard', 'icon' => 'dashboard'],
+                ['route' => 'status-thresholds.edit', 'active' => ['status-thresholds.*'], 'label' => 'Status Thresholds', 'icon' => 'chart'],
+                ['route' => 'schemes.index', 'active' => ['schemes.*'], 'label' => 'Schemes of Work', 'icon' => 'document'],
+            ];
+
+            if ($user->canManageAcademicPeriod()) {
+                $items[] = ['route' => 'academic-period.show', 'active' => ['academic-period.*'], 'label' => 'Academic Period', 'icon' => 'calendar'];
+            }
+            $items[] = ['route' => 'curriculum-coverage.report', 'active' => ['curriculum-coverage.*', 'catch-ups.*'], 'label' => 'Curriculum Coverage', 'icon' => 'chart'];
+            if ($user->isHoS() || $user->isAdmin()) {
+                $items[] = ['route' => 'planning-policy.edit', 'active' => ['planning-policy.*'], 'label' => 'Planning Policy', 'icon' => 'chart'];
+            }
+
+            return [
+                'label' => 'Strategy',
+                'items' => $items,
+            ];
+        }
+
+        $label = match (true) {
+            $user->isHoD() => 'Verification Queue',
+            $user->isTeacher() => 'My Week',
+            $user->isAdminOfficer() => 'Attendance Week',
+            $user->isLearningSupport() => 'At-Risk Caseload',
+            default => 'Dashboard',
+        };
+
+        $items = [
+            ['route' => 'dashboard', 'active' => ['dashboard'], 'label' => $label, 'icon' => 'dashboard'],
+        ];
+
+        if ($user->isHoD()) {
+            $items[] = ['route' => 'schemes.index', 'active' => ['schemes.*'], 'label' => 'Schemes of Work', 'icon' => 'document'];
+            $items[] = ['route' => 'curriculum-coverage.report', 'active' => ['curriculum-coverage.*', 'catch-ups.*'], 'label' => 'Curriculum Coverage', 'icon' => 'chart'];
+        }
+
+        if ($user->isTeacher() && ! $user->isHoD()) {
+            $items[] = ['route' => 'curriculum-coverage.report', 'active' => ['curriculum-coverage.*'], 'label' => 'My Coverage', 'icon' => 'chart'];
+        }
+
+        return [
+            'label' => 'Home',
+            'items' => $items,
+        ];
+    }
+
+    /**
+     * @return array{label: string, items: array<int, array<string, mixed>>}|null
+     */
+    protected static function supportingGroup(User $user): ?array
+    {
+        if ($user->isAdmin() || ! $user->canViewLearners()) {
+            return null;
+        }
+
+        return [
+            'label' => 'School',
+            'items' => [
+                ['route' => 'learners.index', 'active' => ['learners.*'], 'label' => 'Class Roll', 'icon' => 'users'],
+            ],
+        ];
+    }
+
     /**
      * @return array<int, array{label: string, items: array<int, array<string, mixed>}>}
      */
-    protected static function adminGroups(): array
+    protected static function adminLeadGroups(): array
     {
         return [
             [
@@ -197,6 +362,10 @@ class WiscaNavigation
                 'items' => [
                     ['route' => 'admin.dashboard', 'active' => ['admin.dashboard'], 'label' => 'Admin Hub', 'icon' => 'dashboard'],
                     ['route' => 'admin.control-panel.edit', 'active' => ['admin.control-panel.*'], 'label' => 'Control Panel', 'icon' => 'building'],
+                    ['route' => 'academic-period.show', 'active' => ['academic-period.*'], 'label' => 'Academic Period', 'icon' => 'calendar'],
+                    ['route' => 'admin.sessions.create', 'active' => ['admin.sessions.create'], 'label' => 'Create / activate session', 'icon' => 'calendar'],
+                    ['route' => 'planning-policy.edit', 'active' => ['planning-policy.*'], 'label' => 'Planning Policy', 'icon' => 'chart'],
+                    ['route' => 'curriculum-coverage.report', 'active' => ['curriculum-coverage.*', 'catch-ups.*'], 'label' => 'Curriculum Coverage', 'icon' => 'chart'],
                     ['route' => 'admin.sessions.index', 'active' => ['admin.sessions.*'], 'label' => 'Academic Sessions', 'icon' => 'calendar'],
                     ['route' => 'admin.terms.index', 'active' => ['admin.terms.*'], 'label' => 'Terms', 'icon' => 'calendar'],
                 ],
@@ -205,35 +374,24 @@ class WiscaNavigation
                 'label' => 'School Structure',
                 'items' => [
                     ['route' => 'admin.classes.index', 'active' => ['admin.classes.*'], 'label' => 'Classes', 'icon' => 'building'],
+                    ['route' => 'admin.departments.index', 'active' => ['admin.departments.*'], 'label' => 'Departments', 'icon' => 'building'],
                     ['route' => 'admin.subjects.index', 'active' => ['admin.subjects.*'], 'label' => 'Subjects', 'icon' => 'book'],
                     ['route' => 'admin.users.index', 'active' => ['admin.users.*'], 'label' => 'Staff & Teachers', 'icon' => 'users'],
                     ['route' => 'admin.assignments.index', 'active' => ['admin.assignments.*'], 'label' => 'Teacher Assignments', 'icon' => 'list'],
-                ],
-            ],
-            [
-                'label' => 'Registers',
-                'items' => [
                     ['route' => 'learners.index', 'active' => ['learners.*'], 'label' => 'Class Roll', 'icon' => 'users'],
-                    ['route' => 'exam-results.index', 'active' => ['exam-results.*'], 'label' => 'Exam Results', 'icon' => 'chart'],
-                    ['route' => 'at-risk.index', 'active' => ['at-risk.*', 'intervention-plans.*'], 'label' => 'At-Risk Plans', 'icon' => 'document'],
-                    ['route' => 'attendance.index', 'active' => ['attendance.*'], 'label' => 'Attendance', 'icon' => 'check'],
-                    ['route' => 'observations.index', 'active' => ['observations.*'], 'label' => 'Observations', 'icon' => 'document'],
-                    ['route' => 'chapel.index', 'active' => ['chapel.*'], 'label' => 'Chapel & Assembly', 'icon' => 'check'],
-                    ['route' => 'service.index', 'active' => ['service.*'], 'label' => 'Community Service', 'icon' => 'document'],
-                    ['route' => 'discipline.index', 'active' => ['discipline.*'], 'label' => 'Restorative Discipline', 'icon' => 'document'],
-                    ['route' => 'bullying.index', 'active' => ['bullying.*'], 'label' => 'Anti-Bullying Cases', 'icon' => 'document'],
-                    ['route' => 'scripture.index', 'active' => ['scripture.*'], 'label' => 'Scripture Mastery', 'icon' => 'book'],
-                    ['route' => 'partnership.index', 'active' => ['partnership.*'], 'label' => 'Parent Partnership', 'icon' => 'document'],
-                    ['route' => 'lms.index', 'active' => ['lms.*'], 'label' => 'LMS Adoption', 'icon' => 'chart'],
-                    ['route' => 'stem.index', 'active' => ['stem.*'], 'label' => 'STEM Projects', 'icon' => 'book'],
-                    ['route' => 'ethics.index', 'active' => ['ethics.*'], 'label' => 'Digital Ethics Audits', 'icon' => 'document'],
-                    ['route' => 'competency.index', 'active' => ['competency.*'], 'label' => 'Staff Digital Competency', 'icon' => 'users'],
-                    ['route' => 'eassessment.index', 'active' => ['eassessment.*'], 'label' => 'E-Assessment Usage', 'icon' => 'chart'],
-                    ['route' => 'portal-engagement.index', 'active' => ['portal-engagement.*'], 'label' => 'Parent Portal Engagement', 'icon' => 'users'],
                 ],
             ],
+        ];
+    }
+
+    /**
+     * @return array<int, array{label: string, items: array<int, array<string, mixed>}>}
+     */
+    protected static function adminLookupsAndStrategy(): array
+    {
+        return [
             [
-                'label' => 'Christocentric',
+                'label' => 'Look-up lists',
                 'items' => [
                     ['route' => 'admin.chapel-activity-types.index', 'active' => ['admin.chapel-activity-types.*'], 'label' => 'Activity Types', 'icon' => 'list'],
                     ['route' => 'admin.chapel-sessions.index', 'active' => ['admin.chapel-sessions.*'], 'label' => 'Chapel Sessions', 'icon' => 'calendar'],
@@ -254,6 +412,7 @@ class WiscaNavigation
                 'items' => [
                     ['route' => 'admin.kpis.index', 'active' => ['admin.kpis.*'], 'label' => 'KPI Settings', 'icon' => 'chart'],
                     ['route' => 'status-thresholds.edit', 'active' => ['status-thresholds.*'], 'label' => 'Status Thresholds', 'icon' => 'chart'],
+                    ['route' => 'schemes.index', 'active' => ['schemes.*'], 'label' => 'Schemes of Work', 'icon' => 'document'],
                     ['route' => 'dashboard', 'active' => ['dashboard'], 'label' => 'Executive Dashboard', 'icon' => 'chart'],
                 ],
             ],
@@ -274,239 +433,18 @@ class WiscaNavigation
     }
 
     /**
-     * @return array<int, array{label: string, items: array<int, array<string, mixed>}>}
+     * @param  array<int, array<string, mixed>>  $groups
+     * @return \Generator<int, array<string, mixed>>
      */
-    protected static function executiveGroups(): array
+    protected static function walkItems(array $groups): \Generator
     {
-        return [
-            [
-                'label' => 'Strategy',
-                'items' => [
-                    ['route' => 'dashboard', 'active' => ['dashboard'], 'label' => 'Executive Dashboard', 'icon' => 'dashboard'],
-                    ['route' => 'status-thresholds.edit', 'active' => ['status-thresholds.*'], 'label' => 'Status Thresholds', 'icon' => 'chart'],
-                ],
-            ],
-        ];
-    }
-
-    /**
-     * @return array<int, array{label: string, items: array<int, array<string, mixed>}>}
-     */
-    protected static function hosGroups(): array
-    {
-        return [
-            ...static::executiveGroups(),
-            [
-                'label' => 'Operations',
-                'items' => [
-                    ['route' => 'learners.index', 'active' => ['learners.*'], 'label' => 'Class Roll', 'icon' => 'users'],
-                    ['route' => 'exam-results.index', 'active' => ['exam-results.*'], 'label' => 'Exam Results', 'icon' => 'chart'],
-                    ['route' => 'at-risk.index', 'active' => ['at-risk.*', 'intervention-plans.*'], 'label' => 'At-Risk Plans', 'icon' => 'document'],
-                    ['route' => 'attendance.index', 'active' => ['attendance.*'], 'label' => 'Attendance', 'icon' => 'check'],
-                    ['route' => 'homework.index', 'active' => ['homework.*'], 'label' => 'Homework', 'icon' => 'list'],
-                    ['route' => 'observations.index', 'active' => ['observations.*'], 'label' => 'Observations', 'icon' => 'document'],
-                    ['route' => 'chapel.index', 'active' => ['chapel.*'], 'label' => 'Chapel & Assembly', 'icon' => 'check'],
-                    ['route' => 'character.index', 'active' => ['character.*'], 'label' => 'Character Development', 'icon' => 'document'],
-                    ['route' => 'service.index', 'active' => ['service.*'], 'label' => 'Community Service', 'icon' => 'document'],
-                    ['route' => 'discipline.index', 'active' => ['discipline.*'], 'label' => 'Restorative Discipline', 'icon' => 'document'],
-                    ['route' => 'bullying.index', 'active' => ['bullying.*'], 'label' => 'Anti-Bullying Cases', 'icon' => 'document'],
-                    ['route' => 'scripture.index', 'active' => ['scripture.*'], 'label' => 'Scripture Mastery', 'icon' => 'book'],
-                    ['route' => 'partnership.index', 'active' => ['partnership.*'], 'label' => 'Parent Partnership', 'icon' => 'document'],
-                    ['route' => 'lms.index', 'active' => ['lms.*'], 'label' => 'LMS Adoption', 'icon' => 'chart'],
-                    ['route' => 'stem.index', 'active' => ['stem.*'], 'label' => 'STEM Projects', 'icon' => 'book'],
-                    ['route' => 'ethics.index', 'active' => ['ethics.*'], 'label' => 'Digital Ethics Audits', 'icon' => 'document'],
-                    ['route' => 'competency.index', 'active' => ['competency.*'], 'label' => 'Staff Digital Competency', 'icon' => 'users'],
-                    ['route' => 'eassessment.index', 'active' => ['eassessment.*'], 'label' => 'E-Assessment Usage', 'icon' => 'chart'],
-                    ['route' => 'portal-engagement.index', 'active' => ['portal-engagement.*'], 'label' => 'Parent Portal Engagement', 'icon' => 'users'],
-                ],
-            ],
-        ];
-    }
-
-    /**
-     * @return array<int, array{label: string, items: array<int, array<string, mixed>}>}
-     */
-    protected static function officerGroups(): array
-    {
-        return [
-            [
-                'label' => 'Registers',
-                'items' => [
-                    ['route' => 'dashboard', 'active' => ['dashboard'], 'label' => 'Attendance Week', 'icon' => 'dashboard'],
-                    ['route' => 'learners.index', 'active' => ['learners.*'], 'label' => 'Class Roll', 'icon' => 'users'],
-                    ['route' => 'attendance.index', 'active' => ['attendance.*'], 'label' => 'Attendance Log', 'icon' => 'check'],
-                    ['route' => 'chapel.index', 'active' => ['chapel.*'], 'label' => 'Chapel & Assembly', 'icon' => 'check'],
-                ],
-            ],
-        ];
-    }
-
-    /**
-     * @return array<int, array{label: string, items: array<int, array<string, mixed>}>}
-     */
-    protected static function hodGroups(): array
-    {
-        return [
-            [
-                'label' => 'Operations',
-                'items' => [
-                    ['route' => 'dashboard', 'active' => ['dashboard'], 'label' => 'Verification Queue', 'icon' => 'check'],
-                    ['route' => 'lesson-plans.index', 'active' => ['lesson-plans.*'], 'label' => 'Lesson Plans', 'icon' => 'document'],
-                    ['route' => 'exam-results.index', 'active' => ['exam-results.*'], 'label' => 'Exam Results', 'icon' => 'chart'],
-                    ['route' => 'at-risk.index', 'active' => ['at-risk.*', 'intervention-plans.*'], 'label' => 'At-Risk Plans', 'icon' => 'document'],
-                    ['route' => 'reading.index', 'active' => ['reading.*'], 'label' => 'Reading Progress', 'icon' => 'book'],
-                    ['route' => 'learners.index', 'active' => ['learners.*'], 'label' => 'Class Roll', 'icon' => 'users'],
-                    ['route' => 'homework.index', 'active' => ['homework.*'], 'label' => 'Homework', 'icon' => 'list'],
-                    ['route' => 'attendance.index', 'active' => ['attendance.*'], 'label' => 'Attendance', 'icon' => 'check'],
-                    ['route' => 'observations.index', 'active' => ['observations.*'], 'label' => 'Observations', 'icon' => 'document'],
-                    ['route' => 'coverage-logs.index', 'active' => ['coverage-logs.*'], 'label' => 'Coverage Logs', 'icon' => 'document'],
-                    ['route' => 'chapel.index', 'active' => ['chapel.*'], 'label' => 'Chapel & Assembly', 'icon' => 'check'],
-                    ['route' => 'character.index', 'active' => ['character.*'], 'label' => 'Character Development', 'icon' => 'document'],
-                    ['route' => 'service.index', 'active' => ['service.*'], 'label' => 'Community Service', 'icon' => 'document'],
-                    ['route' => 'discipline.index', 'active' => ['discipline.*'], 'label' => 'Restorative Discipline', 'icon' => 'document'],
-                    ['route' => 'bullying.index', 'active' => ['bullying.*'], 'label' => 'Anti-Bullying Cases', 'icon' => 'document'],
-                    ['route' => 'scripture.index', 'active' => ['scripture.*'], 'label' => 'Scripture Mastery', 'icon' => 'book'],
-                    ['route' => 'stem.index', 'active' => ['stem.*'], 'label' => 'STEM Projects', 'icon' => 'book'],
-                ],
-            ],
-        ];
-    }
-
-    /**
-     * @return array<int, array{label: string, items: array<int, array<string, mixed>}>}
-     */
-    protected static function teacherGroups(): array
-    {
-        return [
-            [
-                'label' => 'Curriculum',
-                'items' => [
-                    ['route' => 'dashboard', 'active' => ['dashboard'], 'label' => 'My Week', 'icon' => 'dashboard'],
-                    ['route' => 'lesson-plans.index', 'active' => ['lesson-plans.*'], 'label' => 'Lesson Plans', 'icon' => 'book'],
-                    ['route' => 'homework.index', 'active' => ['homework.*'], 'label' => 'Homework', 'icon' => 'list'],
-                    ['route' => 'attendance.index', 'active' => ['attendance.*'], 'label' => 'Attendance', 'icon' => 'check'],
-                    ['route' => 'exam-results.index', 'active' => ['exam-results.*'], 'label' => 'Exam Results', 'icon' => 'chart'],
-                    ['route' => 'at-risk.index', 'active' => ['at-risk.*', 'intervention-plans.*'], 'label' => 'At-Risk Plans', 'icon' => 'document'],
-                    ['route' => 'reading.index', 'active' => ['reading.*'], 'label' => 'Reading Progress', 'icon' => 'book'],
-                    ['route' => 'learners.index', 'active' => ['learners.*'], 'label' => 'Class Roll', 'icon' => 'users'],
-                    ['route' => 'observations.index', 'active' => ['observations.*'], 'label' => 'Observations', 'icon' => 'book'],
-                    ['route' => 'coverage-logs.index', 'active' => ['coverage-logs.*'], 'label' => 'Coverage Logs', 'icon' => 'document'],
-                    ['route' => 'character.index', 'active' => ['character.*'], 'label' => 'Character Development', 'icon' => 'document'],
-                    ['route' => 'service.index', 'active' => ['service.*'], 'label' => 'Community Service', 'icon' => 'document'],
-                    ['route' => 'discipline.index', 'active' => ['discipline.*'], 'label' => 'Restorative Discipline', 'icon' => 'document'],
-                    ['route' => 'bullying.index', 'active' => ['bullying.*'], 'label' => 'Anti-Bullying Cases', 'icon' => 'document'],
-                    ['route' => 'scripture.index', 'active' => ['scripture.*'], 'label' => 'Scripture Mastery', 'icon' => 'book'],
-                    ['route' => 'stem.index', 'active' => ['stem.*'], 'label' => 'STEM Projects', 'icon' => 'book'],
-                ],
-            ],
-        ];
-    }
-
-    /**
-     * @return array<int, array{label: string, items: array<int, array<string, mixed>}>}
-     */
-    protected static function literacyGroups(): array
-    {
-        return [
-            [
-                'label' => 'Literacy',
-                'items' => [
-                    ['route' => 'dashboard', 'active' => ['dashboard'], 'label' => 'Dashboard', 'icon' => 'dashboard'],
-                    ['route' => 'reading.index', 'active' => ['reading.*'], 'label' => 'Reading Progress', 'icon' => 'book'],
-                    ['route' => 'learners.index', 'active' => ['learners.*'], 'label' => 'Class Roll', 'icon' => 'users'],
-                ],
-            ],
-        ];
-    }
-
-    /**
-     * @return array<int, array{label: string, items: array<int, array<string, mixed>}>}
-     */
-    protected static function supportGroups(): array
-    {
-        return [
-            [
-                'label' => 'Learning Support',
-                'items' => [
-                    ['route' => 'dashboard', 'active' => ['dashboard'], 'label' => 'At-Risk Caseload', 'icon' => 'dashboard'],
-                    ['route' => 'at-risk.index', 'active' => ['at-risk.*', 'intervention-plans.*'], 'label' => 'Intervention Plans', 'icon' => 'document'],
-                    ['route' => 'reading.index', 'active' => ['reading.*'], 'label' => 'Reading Progress', 'icon' => 'book'],
-                    ['route' => 'learners.index', 'active' => ['learners.*'], 'label' => 'Class Roll', 'icon' => 'users'],
-                    ['route' => 'exam-results.index', 'active' => ['exam-results.*'], 'label' => 'Exam Results', 'icon' => 'chart'],
-                ],
-            ],
-        ];
-    }
-
-    /**
-     * @return array<int, array{label: string, items: array<int, array<string, mixed>}>}
-     */
-    protected static function studentLifeGroups(): array
-    {
-        return [
-            [
-                'label' => 'Christocentric',
-                'items' => [
-                    ['route' => 'dashboard', 'active' => ['dashboard'], 'label' => 'Dashboard', 'icon' => 'dashboard'],
-                    ['route' => 'chapel.index', 'active' => ['chapel.*'], 'label' => 'Chapel & Assembly', 'icon' => 'check'],
-                    ['route' => 'character.index', 'active' => ['character.*'], 'label' => 'Character Development', 'icon' => 'document'],
-                    ['route' => 'service.index', 'active' => ['service.*'], 'label' => 'Community Service', 'icon' => 'document'],
-                    ['route' => 'discipline.index', 'active' => ['discipline.*'], 'label' => 'Restorative Discipline', 'icon' => 'document'],
-                    ['route' => 'bullying.index', 'active' => ['bullying.*'], 'label' => 'Anti-Bullying Cases', 'icon' => 'document'],
-                    ['route' => 'scripture.index', 'active' => ['scripture.*'], 'label' => 'Scripture Mastery', 'icon' => 'book'],
-                    ['route' => 'partnership.index', 'active' => ['partnership.*'], 'label' => 'Parent Partnership', 'icon' => 'document'],
-                ],
-            ],
-        ];
-    }
-
-    /**
-     * @return array<int, array{label: string, items: array<int, array<string, mixed>}>}
-     */
-    protected static function parentRelationsGroups(): array
-    {
-        return [
-            [
-                'label' => 'Parent Partnership',
-                'items' => [
-                    ['route' => 'partnership.index', 'active' => ['partnership.*'], 'label' => 'Partnership Commitments', 'icon' => 'document'],
-                    ['route' => 'portal-engagement.index', 'active' => ['portal-engagement.*'], 'label' => 'Parent Portal Engagement', 'icon' => 'users'],
-                ],
-            ],
-        ];
-    }
-
-    /**
-     * @return array<int, array{label: string, items: array<int, array<string, mixed>}>}
-     */
-    protected static function itConsultantGroups(): array
-    {
-        return [
-            [
-                'label' => 'Digital Innovation',
-                'items' => [
-                    ['route' => 'lms.index', 'active' => ['lms.*'], 'label' => 'LMS Adoption', 'icon' => 'chart'],
-                    ['route' => 'ethics.index', 'active' => ['ethics.*'], 'label' => 'Digital Ethics Audits', 'icon' => 'document'],
-                    ['route' => 'competency.index', 'active' => ['competency.*'], 'label' => 'Staff Digital Competency', 'icon' => 'users'],
-                    ['route' => 'eassessment.index', 'active' => ['eassessment.*'], 'label' => 'E-Assessment Usage', 'icon' => 'chart'],
-                    ['route' => 'portal-engagement.index', 'active' => ['portal-engagement.*'], 'label' => 'Parent Portal Engagement', 'icon' => 'users'],
-                ],
-            ],
-        ];
-    }
-
-    /**
-     * @return array<int, array{label: string, items: array<int, array<string, mixed>}>}
-     */
-    protected static function stemCoordinatorGroups(): array
-    {
-        return [
-            [
-                'label' => 'Digital Innovation',
-                'items' => [
-                    ['route' => 'stem.index', 'active' => ['stem.*'], 'label' => 'STEM Projects', 'icon' => 'book'],
-                ],
-            ],
-        ];
+        foreach ($groups as $group) {
+            foreach ($group['items'] ?? [] as $item) {
+                yield $item;
+                foreach ($item['children'] ?? [] as $child) {
+                    yield $child;
+                }
+            }
+        }
     }
 }

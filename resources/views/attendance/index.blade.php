@@ -159,6 +159,7 @@
                             <th class="px-5 py-3 font-semibold text-slate-600">Enrolled</th>
                             <th class="px-5 py-3 font-semibold text-slate-600">Present</th>
                             <th class="px-5 py-3 font-semibold text-slate-600">Rate</th>
+                            <th class="px-5 py-3 font-semibold text-slate-600">Review</th>
                             @if ($canRecord)
                                 <th class="px-5 py-3 font-semibold text-slate-600 text-right">Action</th>
                             @endif
@@ -189,10 +190,25 @@
                                 <td class="px-5 py-3 font-medium {{ $rate >= 0.95 ? 'text-emerald-700' : 'text-amber-700' }}">
                                     {{ number_format($rate * 100, 1) }}%
                                 </td>
+                                <td class="px-5 py-3">
+                                    <span @class([
+                                        'inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                                        'bg-slate-100 text-slate-600' => $log->isSubmitted(),
+                                        'bg-emerald-100 text-emerald-800' => $log->isVerified(),
+                                        'bg-red-100 text-red-800' => $log->isRejected(),
+                                    ])>{{ $log->status }}</span>
+                                    @if ($log->isRejected() && $log->rejection_reason)
+                                        <p class="mt-1 max-w-xs text-xs text-red-700">{{ $log->rejection_reason }}</p>
+                                    @endif
+                                </td>
                                 @if ($canRecord)
                                     <td class="px-5 py-3 text-right">
-                                        <a href="{{ route('attendance.edit', $log) }}"
-                                           class="text-xs font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">Update</a>
+                                        @if ($log->isEditableByTeacher())
+                                            <a href="{{ route('attendance.edit', $log) }}"
+                                               class="text-xs font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">Update</a>
+                                        @else
+                                            <span class="text-xs text-slate-400">Verified</span>
+                                        @endif
                                     </td>
                                 @endif
                             </tr>

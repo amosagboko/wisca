@@ -20,7 +20,14 @@
     <x-portal.page-intro
         eyebrow="Teacher · Appendix C"
         title="My Week"
-        :meta="'Week '.$week_number.($term ? ' of '.$term->name : '').' · '.$session->name.'. Log taught topics against learner workbooks.'"
+        :meta="'Week '.$week_number.($term ? ' of '.$term->name : '').' · '.$session->name.'. Do the next piece of work; HOD reviews the evidence.'"
+    />
+
+    <x-portal.work-inbox
+        title="Due this week"
+        subtitle="One inbox. Each item opens the existing form — plans, coverage, homework, register, or marks."
+        :items="$tasks ?? collect()"
+        empty="Nothing due from your assignments this week. Coverage, homework, and attendance summaries stay below."
     />
 
     <section class="portal-enter mb-6 overflow-hidden rounded-2xl border border-[#0f2d4a]/15 bg-gradient-to-br from-[#0f2d4a] via-[#163d63] to-[#1a4a72] p-6 text-white shadow-[0_8px_32px_rgba(15,45,74,0.18)] sm:p-8">

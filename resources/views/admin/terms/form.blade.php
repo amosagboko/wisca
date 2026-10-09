@@ -47,13 +47,10 @@
             </div>
 
             <div>
-                <x-input-label for="status" value="Status" />
-                <select id="status" name="status" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-                    @foreach (['upcoming', 'active', 'closed'] as $status)
-                        <option value="{{ $status }}" @selected(old('status', $term->status) === $status)>{{ ucfirst($status) }}</option>
-                    @endforeach
-                </select>
-                <x-input-error :messages="$errors->get('status')" class="mt-2" />
+                <x-input-label for="sequence" value="Sequence" />
+                <x-text-input id="sequence" name="sequence" type="number" min="1" class="block mt-1 w-full" :value="old('sequence', $term->sequence)" placeholder="1, 2, 3…" />
+                <p class="mt-1 text-xs text-slate-500">Order within the session. Status is {{ $term->status ?? 'upcoming' }}@if ($term->is_current) (current)@endif. Use Academic Period to transition.</p>
+                <x-input-error :messages="$errors->get('sequence')" class="mt-2" />
             </div>
 
             <div class="flex flex-wrap gap-3 pt-2">

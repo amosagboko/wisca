@@ -2,7 +2,7 @@
     <x-portal.page-intro
         eyebrow="School Structure"
         title="Subjects"
-        meta="Subjects are linked to classes through teacher assignments and schemes of work."
+        meta="Create a class first, then add subjects to that class. Schemes of work and teacher assignments use this class–subject link."
     />
 
     <div class="mb-4 flex justify-end">
@@ -18,6 +18,8 @@
                     <tr>
                         <th class="px-5 sm:px-6 py-3 font-semibold text-slate-600">Name</th>
                         <th class="px-5 py-3 font-semibold text-slate-600">Code</th>
+                        <th class="px-5 py-3 font-semibold text-slate-600">Department</th>
+                        <th class="px-5 py-3 font-semibold text-slate-600">Classes</th>
                         <th class="px-5 py-3 font-semibold text-slate-600">Status</th>
                         <th class="px-5 py-3 font-semibold text-slate-600 text-right">Actions</th>
                     </tr>
@@ -27,6 +29,8 @@
                         <tr class="border-t border-slate-100">
                             <td class="px-5 sm:px-6 py-3 font-medium text-slate-800">{{ $subject->name }}</td>
                             <td class="px-5 py-3 text-slate-600">{{ $subject->code ?: '—' }}</td>
+                            <td class="px-5 py-3 text-slate-600">{{ $subject->department?->name ?: '—' }}</td>
+                            <td class="px-5 py-3 text-slate-600">{{ $subject->classes->pluck('name')->join(', ') ?: '—' }}</td>
                             <td class="px-5 py-3 capitalize">{{ $subject->status }}</td>
                             <td class="px-5 py-3 text-right space-x-2">
                                 <a href="{{ route('admin.subjects.edit', $subject) }}" class="text-xs font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">Edit</a>
@@ -39,7 +43,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="4" class="px-5 sm:px-6 py-8 text-center text-slate-500">No subjects configured yet.</td>
+                            <td colspan="6" class="px-5 sm:px-6 py-8 text-center text-slate-500">No subjects configured yet.</td>
                         </tr>
                     @endforelse
                 </tbody>

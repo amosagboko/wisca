@@ -4,13 +4,22 @@ namespace App\Http\Controllers;
 
 use App\Models\AcademicSession;
 use App\Models\LessonPlan;
+use App\Models\SchoolClass;
+use App\Models\Subject;
 use App\Models\Term;
 use App\Models\Topic;
+use App\Models\User;
+use App\Services\AcademicPeriodService;
+use App\Services\CurriculumCoverageKpiService;
 use App\Services\CurriculumDashboardService;
+use App\Services\HodScope;
 use App\Services\LessonPlanCalculationService;
+use App\Services\LessonPlanReview;
+use App\Services\PlanningPolicy;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class LessonPlanController extends Controller
@@ -18,7 +27,7 @@ class LessonPlanController extends Controller
     public function index(Request $request): View
     {
         $user = auth()->user();
-        abort_unless($user->isTeacher() || $user->isHoD() || $user->isHoS() || $user->isAdmin(), 403);
+        abort_unless($user->isTeacher() || $user->isHoD() || $user->isLeadership() || $user->isAdmin(), 403);
 
         $isStaff = $user->isHoD() || $user->isHoS() || $user->isAdmin();
 
@@ -44,17 +53,34 @@ class LessonPlanController extends Controller
         $search          = trim((string) $request->query('search', ''));
         $sortBy          = $request->query('sort', 'date_desc');
 
+        $scope = app(HodScope::class);
+
         $query = LessonPlan::whereHas('schoolClass', fn ($q) => $q->where('school_id', $user->school_id))
+            ->whereHas('topic.schemeOfWork', function ($q) use ($session, $termId) {
+                $q->where('academic_session_id', $session->id);
+                if ($termId) {
+                    $q->where('term_id', $termId);
+                }
+            })
             ->when(! $isStaff,       fn ($q) => $q->where('teacher_id', $user->id))
+            ->when($user->isHoD() && ! $user->isHoS() && ! $user->isAdmin(), fn ($q) => $scope->constrainBySubject($q, $user))
             ->when($filterClassId,   fn ($q) => $q->where('school_class_id', $filterClassId))
             ->when($filterSubjectId, fn ($q) => $q->where('subject_id', $filterSubjectId))
             ->when($filterTeacherId, fn ($q) => $q->where('teacher_id', $filterTeacherId))
             ->when($filterStatus !== '', fn ($q) => $q->where('status', $filterStatus))
             ->when($filterTiming === 'on_time', fn ($q) => $q->where('on_time', true))
             ->when($filterTiming === 'late',    fn ($q) => $q->where('on_time', false)->whereNotNull('submitted_at'))
-            ->when($termId, fn ($q) => $q->whereHas('topic.schemeOfWork', fn ($sq) => $sq->where('term_id', $termId)))
-            ->when($search !== '', fn ($q) => $q->whereHas('topic', fn ($tq) => $tq->where('title', 'like', '%'.$search.'%')))
-            ->with(['topic.schemeOfWork', 'teacher', 'schoolClass', 'subject']);
+            ->when($search !== '', fn ($q) => $q->whereHas('topic', fn ($tq) => $tq->where('title', 'like', '%'.$search.'%')));
+
+        $planSummary = [
+            'submitted' => (clone $query)->where('status', 'submitted')->count(),
+            'approved' => (clone $query)->where('status', 'approved')->count(),
+            'rejected' => (clone $query)->where('status', 'rejected')->count(),
+            'on_time' => (clone $query)->where('on_time', true)->whereNotNull('submitted_at')->count(),
+            'late' => (clone $query)->where('on_time', false)->whereNotNull('submitted_at')->count(),
+        ];
+
+        $query = $query->with(['topic.schemeOfWork', 'teacher', 'schoolClass', 'subject']);
 
         $query = match ($sortBy) {
             'date_asc'  => $query->orderBy('submitted_at'),
@@ -62,29 +88,38 @@ class LessonPlanController extends Controller
             default     => $query->latest('submitted_at'),
         };
 
-        $plans = $query->get();
+        $plans = $query->paginate(25)->withQueryString();
 
-        // Dropdown options (unfiltered)
-        $allPlans = LessonPlan::whereHas('schoolClass', fn ($q) => $q->where('school_id', $user->school_id))
-            ->when(! $isStaff, fn ($q) => $q->where('teacher_id', $user->id))
-            ->with(['teacher', 'schoolClass', 'subject'])->get();
-
+        $allClasses = SchoolClass::where('school_id', $user->school_id)->orderBy('name')->get();
+        $allSubjects = Subject::where('school_id', $user->school_id)
+            ->when($user->isHoD() && ! $user->isHoS() && ! $user->isAdmin(), fn ($q) => $scope->constrainBySubject($q, $user, 'id'))
+            ->orderBy('name')
+            ->get();
         $allTeachers = $isStaff
-            ? $allPlans->pluck('teacher')->filter()->unique('id')->sortBy('name')->values()
+            ? User::where('school_id', $user->school_id)
+                ->whereHas('roles', fn ($q) => $q->where('name', 'teacher'))
+                ->orderBy('name')
+                ->get()
             : collect();
-        $allClasses  = $allPlans->pluck('schoolClass')->filter()->unique('id')->sortBy('name')->values();
-        $allSubjects = $allPlans->pluck('subject')->filter()->unique('id')->sortBy('name')->values();
 
         $filters = compact(
             'sessionId', 'termId', 'filterClassId', 'filterSubjectId',
             'filterTeacherId', 'filterStatus', 'filterTiming', 'search', 'sortBy'
         );
 
-        return view('lesson-plans.index', compact(
-            'plans', 'session', 'isStaff',
-            'allSessions', 'allTerms', 'allClasses', 'allSubjects', 'allTeachers',
-            'filters'
-        ));
+        return view('lesson-plans.index', [
+            'plans' => $plans,
+            'planSummary' => $planSummary,
+            'session' => $session,
+            'isStaff' => $isStaff,
+            'allSessions' => $allSessions,
+            'allTerms' => $allTerms,
+            'allClasses' => $allClasses,
+            'allSubjects' => $allSubjects,
+            'allTeachers' => $allTeachers,
+            'filters' => $filters,
+            'dueWeekdayName' => app(PlanningPolicy::class)->lessonPlanDueWeekdayName($session->school),
+        ]);
     }
 
     public function create(Request $request, CurriculumDashboardService $curriculum): View
@@ -95,7 +130,7 @@ class LessonPlanController extends Controller
         $session = AcademicSession::currentForSchool($user->school_id);
         abort_unless($session, 403, 'No active academic session configured.');
 
-        $schemes = $curriculum->schemesForTeacher($user, $session->id);
+        $schemes = $curriculum->schemesForTeacherPlanning($user, $session->id);
         $selectedTopic = null;
         $plan = new LessonPlan(['status' => 'draft']);
 
@@ -113,6 +148,7 @@ class LessonPlanController extends Controller
             'selectedTopic' => $selectedTopic,
             'plan' => $plan,
             'session' => $session,
+            'dueWeekdayName' => app(PlanningPolicy::class)->lessonPlanDueWeekdayName($session->school),
         ]);
     }
 
@@ -128,13 +164,14 @@ class LessonPlanController extends Controller
         abort_unless($lessonPlan->isEditable(), 403, 'Only draft or rejected plans can be edited.');
 
         $session = AcademicSession::currentForSchool($user->school_id);
-        $schemes = $curriculum->schemesForTeacher($user, $session->id);
+        $schemes = $curriculum->schemesForTeacherPlanning($user, $session->id);
 
         return view('lesson-plans.form', [
             'schemes' => $schemes,
             'selectedTopic' => $lessonPlan->topic,
             'plan' => $lessonPlan,
             'session' => $session,
+            'dueWeekdayName' => app(PlanningPolicy::class)->lessonPlanDueWeekdayName($session?->school),
         ]);
     }
 
@@ -147,46 +184,54 @@ class LessonPlanController extends Controller
         return $this->persist($request, $curriculum, $calculator, $lessonPlan);
     }
 
-    public function approve(Request $request, LessonPlan $lessonPlan, LessonPlanCalculationService $calculator): RedirectResponse
+    public function approve(Request $request, LessonPlan $lessonPlan, LessonPlanCalculationService $calculator, HodScope $scope, LessonPlanReview $review): RedirectResponse
     {
         abort_unless(auth()->user()->isHoD() || auth()->user()->isHoS(), 403);
+        $scope->assertCanReviewLessonPlan(auth()->user(), $lessonPlan);
         abort_unless($lessonPlan->status === 'submitted', 422, 'Only submitted plans can be approved.');
 
-        $request->validate([
-            'comment' => ['nullable', 'string', 'max:2000'],
-        ]);
+        $snapshot = $review->snapshot(auth()->user(), $request->validate($review->rules())['checklist']);
+        if (! $review->allPassed($snapshot)) {
+            throw ValidationException::withMessages([
+                'checklist' => 'Approve only when every quality item passes. Return the plan if any item fails.',
+            ]);
+        }
 
         $lessonPlan->update([
             'status' => 'approved',
             'approved_by' => auth()->id(),
             'approved_at' => now(),
             'rejection_reason' => null,
+            'review_checklist' => $snapshot,
         ]);
 
         $this->recalculate($lessonPlan, $calculator);
 
-        return back()->with('success', 'Lesson plan approved. The teacher can now log coverage for this topic.');
+        return back()->with('success', 'Lesson plan approved against the quality checklist. This is Planned only — the teacher must still record delivery for HoD verification.');
     }
 
-    public function reject(Request $request, LessonPlan $lessonPlan, LessonPlanCalculationService $calculator): RedirectResponse
+    public function reject(Request $request, LessonPlan $lessonPlan, LessonPlanCalculationService $calculator, HodScope $scope, LessonPlanReview $review): RedirectResponse
     {
         abort_unless(auth()->user()->isHoD() || auth()->user()->isHoS(), 403);
+        $scope->assertCanReviewLessonPlan(auth()->user(), $lessonPlan);
         abort_unless($lessonPlan->status === 'submitted', 422, 'Only submitted plans can be rejected.');
 
-        $validated = $request->validate([
+        $validated = $request->validate(array_merge($review->rules(), [
             'rejection_reason' => ['required', 'string', 'max:2000'],
-        ]);
+        ]));
+        $snapshot = $review->snapshot(auth()->user(), $validated['checklist']);
 
         $lessonPlan->update([
             'status' => 'rejected',
             'approved_by' => auth()->id(),
             'approved_at' => now(),
             'rejection_reason' => $validated['rejection_reason'],
+            'review_checklist' => $snapshot,
         ]);
 
         $this->recalculate($lessonPlan, $calculator);
 
-        return back()->with('success', 'Lesson plan returned for revision.');
+        return back()->with('success', 'Lesson plan returned for revision with the quality checklist.');
     }
 
     protected function persist(
@@ -203,15 +248,20 @@ class LessonPlanController extends Controller
 
         $validated = $request->validate([
             'topic_id' => ['required', 'exists:topics,id'],
-            'objectives' => ['required', 'string', 'max:5000'],
+            'objectives' => ['required'],
             'activities' => ['required', 'string', 'max:5000'],
             'assessment' => ['required', 'string', 'max:5000'],
             'resources' => ['nullable', 'string', 'max:2000'],
             'document' => ['nullable', 'file', 'mimes:pdf,doc,docx', 'max:5120'],
         ]);
 
-        $topic = Topic::with(['schemeOfWork.term', 'lessonPlans', 'latestLessonPlan'])->findOrFail($validated['topic_id']);
+        $topic = Topic::with(['schemeOfWork.term', 'schemeOfWork.academicSession', 'lessonPlans', 'latestLessonPlan'])->findOrFail($validated['topic_id']);
         abort_unless($curriculum->teacherOwnsTopic($user, $topic, $session->id), 403);
+        abort_unless($plan->exists || $topic->schemeOfWork?->isActive(), 422, 'Lesson plans must use topics from the Active scheme of work.');
+
+        app(AcademicPeriodService::class)->assertAcceptsNewActivity($topic->schemeOfWork?->academicSession, $topic->schemeOfWork?->term);
+
+        $objectives = $this->approvedObjectivesFromInput($topic, $validated['objectives']);
 
         if ($topic->hasApprovedLessonPlan() && $plan->status !== 'approved') {
             return back()->withErrors(['topic_id' => 'This topic already has an approved lesson plan.'])->withInput();
@@ -234,7 +284,7 @@ class LessonPlanController extends Controller
             'teacher_id' => $user->id,
             'school_class_id' => $scheme->school_class_id,
             'subject_id' => $scheme->subject_id,
-            'objectives' => $validated['objectives'],
+            'objectives' => $objectives,
             'activities' => $validated['activities'],
             'assessment' => $validated['assessment'],
             'resources' => $validated['resources'] ?? null,
@@ -245,6 +295,7 @@ class LessonPlanController extends Controller
             'rejection_reason' => null,
             'approved_by' => null,
             'approved_at' => null,
+            'review_checklist' => null,
         ]);
 
         if ($request->hasFile('document')) {
@@ -254,9 +305,11 @@ class LessonPlanController extends Controller
         $plan->save();
         $this->recalculate($plan, $calculator);
 
-        $timing = $plan->on_time ? 'on time' : 'after the Monday deadline (late for AE-05)';
+        $timing = $plan->on_time
+            ? 'on time'
+            : 'after the planning-policy deadline (late)';
 
-        return redirect()->route('dashboard')->with('success', "Lesson plan submitted {$timing} for HoD approval.");
+        return redirect()->route('dashboard')->with('success', "Lesson plan submitted {$timing}. This is a plan only — it does not count as delivery or verified coverage.");
     }
 
     protected function recalculate(LessonPlan $plan, LessonPlanCalculationService $calculator): void
@@ -268,5 +321,22 @@ class LessonPlanController extends Controller
         }
 
         $calculator->recalculateForSession($scheme->academicSession, $scheme->term);
+        app(CurriculumCoverageKpiService::class)->recalculateForTerm($scheme->academicSession, $scheme->term);
+    }
+
+    protected function approvedObjectivesFromInput(Topic $topic, mixed $input): string
+    {
+        $allowed = $topic->approvedLearningObjectives();
+        $selected = is_array($input)
+            ? array_values(array_filter(array_map(fn ($line) => trim((string) $line), $input)))
+            : array_values(array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', (string) $input) ?: [])));
+
+        if ($selected === [] || array_diff($selected, $allowed) !== []) {
+            throw ValidationException::withMessages([
+                'objectives' => 'Learning objectives must be selected from the Active Scheme of Work topic. Teachers cannot introduce unapproved curriculum objectives.',
+            ]);
+        }
+
+        return implode("\n", $selected);
     }
 }

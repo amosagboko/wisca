@@ -8,8 +8,12 @@ use App\Models\Subject;
 use App\Models\Term;
 use App\Models\Topic;
 use App\Models\TopicCoverageLog;
+use App\Services\AcademicPeriodService;
 use App\Services\CoverageCalculationService;
+use App\Services\CurriculumCoverageKpiService;
 use App\Services\CurriculumDashboardService;
+use App\Services\HodScope;
+use App\Services\TopicCatchUpService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -19,7 +23,7 @@ class TopicCoverageLogController extends Controller
     public function index(Request $request): View
     {
         $user = auth()->user();
-        abort_unless($user->isTeacher() || $user->isHoD() || $user->isHoS() || $user->isAdmin(), 403);
+        abort_unless($user->isTeacher() || $user->isHoD() || $user->isLeadership() || $user->isAdmin() || $user->isSubjectLead(), 403);
 
         // All sessions for this school
         $allSessions = AcademicSession::where('school_id', $user->school_id)
@@ -127,11 +131,13 @@ class TopicCoverageLogController extends Controller
             'notes' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $topic = Topic::with(['schemeOfWork', 'latestCoverageLog', 'lessonPlans'])->findOrFail($validated['topic_id']);
+        $topic = Topic::with(['schemeOfWork.academicSession', 'schemeOfWork.term', 'latestCoverageLog', 'lessonPlans'])->findOrFail($validated['topic_id']);
 
         if (! $curriculum->teacherOwnsTopic($user, $topic, $session->id)) {
             abort(403);
         }
+
+        app(AcademicPeriodService::class)->assertAcceptsNewActivity($topic->schemeOfWork?->academicSession, $topic->schemeOfWork?->term);
 
         if (! $topic->isLoggable()) {
             return back()->withErrors(['topic_id' => 'This topic already has coverage submitted or verified.'])->withInput();
@@ -161,12 +167,13 @@ class TopicCoverageLogController extends Controller
 
         $topic->update(['status' => 'in_progress']);
 
-        return redirect()->route('coverage-logs.index')->with('success', 'Coverage log submitted for HoD verification.');
+        return redirect()->route('coverage-logs.index')->with('success', 'Delivery recorded. This is not verified coverage until the HOD verifies the log.');
     }
 
     public function verify(Request $request, TopicCoverageLog $coverageLog, CoverageCalculationService $coverageService): RedirectResponse
     {
-        abort_unless(auth()->user()->isHoD() || auth()->user()->isHoS(), 403);
+        abort_unless(auth()->user()->isHoD(), 403, 'Only a Head of Department can verify curriculum coverage.');
+        app(HodScope::class)->assertCanReviewCoverage(auth()->user(), $coverageLog);
         abort_unless($coverageLog->status === 'submitted', 422, 'Only submitted logs can be verified.');
 
         $validated = $request->validate([
@@ -184,14 +191,20 @@ class TopicCoverageLogController extends Controller
         ]);
 
         $coverageLog->topic->update(['status' => 'covered']);
+        app(TopicCatchUpService::class)->markAddressedFromVerifiedLog($coverageLog);
         $coverageService->recalculateForScheme($coverageLog->topic->schemeOfWork);
+        $scheme = $coverageLog->topic->schemeOfWork?->loadMissing(['academicSession', 'term']);
+        if ($scheme?->academicSession && $scheme->term) {
+            app(CurriculumCoverageKpiService::class)->recalculateForTerm($scheme->academicSession, $scheme->term);
+        }
 
-        return back()->with('success', 'Topic coverage verified. AE-01 recalculated.');
+        return back()->with('success', 'HOD verified delivery. This topic now counts as verified coverage. Executive AE-01 still uses the existing formula.');
     }
 
     public function reject(Request $request, TopicCoverageLog $coverageLog): RedirectResponse
     {
-        abort_unless(auth()->user()->isHoD() || auth()->user()->isHoS(), 403);
+        abort_unless(auth()->user()->isHoD(), 403, 'Only a Head of Department can reject a delivery log.');
+        app(HodScope::class)->assertCanReviewCoverage(auth()->user(), $coverageLog);
         abort_unless($coverageLog->status === 'submitted', 422, 'Only submitted logs can be rejected.');
 
         $validated = $request->validate([

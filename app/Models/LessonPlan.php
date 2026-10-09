@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -15,7 +16,7 @@ class LessonPlan extends Model
         'topic_id', 'teacher_id', 'school_class_id', 'subject_id',
         'objectives', 'activities', 'assessment', 'resources', 'file_path',
         'status', 'submitted_at', 'due_at', 'on_time',
-        'approved_by', 'approved_at', 'rejection_reason',
+        'approved_by', 'approved_at', 'rejection_reason', 'review_checklist',
     ];
 
     protected function casts(): array
@@ -25,6 +26,7 @@ class LessonPlan extends Model
             'due_at' => 'datetime',
             'approved_at' => 'datetime',
             'on_time' => 'boolean',
+            'review_checklist' => 'array',
         ];
     }
 
@@ -56,6 +58,20 @@ class LessonPlan extends Model
     public function isEditable(): bool
     {
         return in_array($this->status, ['draft', 'rejected'], true);
+    }
+
+    public function reviewDeadlineAt(): ?Carbon
+    {
+        return $this->submitted_at?->copy()->addDay();
+    }
+
+    public function isReviewSlaOverdue(): bool
+    {
+        if ($this->status !== 'submitted' || ! $this->submitted_at) {
+            return false;
+        }
+
+        return now()->gt($this->reviewDeadlineAt());
     }
 
     public function fileUrl(): ?string

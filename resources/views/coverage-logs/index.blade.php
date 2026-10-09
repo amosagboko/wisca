@@ -1,6 +1,7 @@
 @php
     $f = $filters;
-    $isStaff = auth()->user()->isHoD() || auth()->user()->isHoS() || auth()->user()->isAdmin();
+    $canVerify = auth()->user()->isHoD();
+    $isStaff = $canVerify || auth()->user()->isHoS() || auth()->user()->isAdmin();
     $canLog  = auth()->user()->isTeacher();
 
     $activeFilters = $f['termId'] || $f['filterClassId'] || $f['filterSubjectId']
@@ -16,8 +17,14 @@
     <x-portal.page-intro
         eyebrow="Appendix C · AE-01"
         title="Curriculum coverage logs"
-        :meta="$session->name.'. Topics submitted for verification against approved schemes of work.'"
-    />
+        :meta="$session->name.'. Delivery logs are not verified coverage until the HOD verifies them. AE-01.2 is a coverage proxy.'"
+    >
+        <x-slot:actions>
+            <a href="{{ route('schemes.index') }}" class="inline-flex items-center rounded-lg bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-[#0f2d4a] transition hover:bg-slate-100">
+                Schemes of work
+            </a>
+        </x-slot:actions>
+    </x-portal.page-intro>
 
     {{-- Filter bar --}}
     <form method="GET" action="{{ route('coverage-logs.index') }}"
@@ -114,7 +121,7 @@
             <div class="flex-1 min-w-[120px] rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 shadow-sm">
                 <p class="text-[11px] font-semibold uppercase tracking-widest text-emerald-500">Verified</p>
                 <p class="mt-1 text-2xl font-display font-semibold text-emerald-700">{{ $verified }}</p>
-                <p class="text-xs text-emerald-600">count toward AE-01</p>
+                <p class="text-xs text-emerald-600">HOD-verified coverage</p>
             </div>
             @if ($rejected > 0)
                 <div class="flex-1 min-w-[120px] rounded-xl border border-red-100 bg-red-50 px-4 py-3 shadow-sm">
@@ -198,6 +205,7 @@
                                 @if ($isStaff)
                                     <td class="px-5 py-3 text-right">
                                         @if ($log->status === 'submitted')
+                                            @if ($canVerify)
                                             <form method="POST" action="{{ route('coverage-logs.verify', $log) }}" class="inline">
                                                 @csrf
                                                 <button type="submit"
@@ -216,6 +224,9 @@
                                                             class="text-xs font-semibold uppercase tracking-wide text-red-700 hover:underline">Confirm reject</button>
                                                 </form>
                                             </div>
+                                            @else
+                                                <span class="text-xs text-slate-400">Awaiting HOD verification</span>
+                                            @endif
                                         @elseif ($log->status === 'verified')
                                             <span class="text-xs text-slate-400">{{ $log->verifier?->name }} · {{ optional($log->verified_at)->format('d M Y') }}</span>
                                         @elseif ($log->status === 'rejected')

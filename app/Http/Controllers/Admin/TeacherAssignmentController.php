@@ -9,7 +9,7 @@ use App\Models\TeacherAssignment;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class TeacherAssignmentController extends AdminController
@@ -75,10 +75,18 @@ class TeacherAssignmentController extends AdminController
     /** @return array<string, mixed> */
     protected function formOptions(): array
     {
+        $classes = SchoolClass::where('school_id', $this->schoolId())
+            ->with('offeredSubjects')
+            ->orderBy('name')
+            ->get();
+
         return [
             'sessions' => AcademicSession::where('school_id', $this->schoolId())->orderByDesc('start_date')->get(),
-            'classes' => SchoolClass::where('school_id', $this->schoolId())->orderBy('name')->get(),
+            'classes' => $classes,
             'subjects' => Subject::where('school_id', $this->schoolId())->orderBy('name')->get(),
+            'offeredByClass' => $classes->mapWithKeys(fn (SchoolClass $class) => [
+                (string) $class->id => $class->offeredSubjects->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
+            ])->all(),
             'teachers' => User::role('teacher')->where('school_id', $this->schoolId())->orderBy('name')->get(),
         ];
     }
@@ -100,6 +108,13 @@ class TeacherAssignmentController extends AdminController
         abort_unless(Subject::where('id', $validated['subject_id'])->where('school_id', $this->schoolId())->exists(), 404);
         abort_unless(AcademicSession::where('id', $validated['academic_session_id'])->where('school_id', $this->schoolId())->exists(), 404);
         abort_unless(User::role('teacher')->where('id', $validated['teacher_id'])->where('school_id', $this->schoolId())->exists(), 404);
+
+        $class = SchoolClass::find($validated['school_class_id']);
+        if ($class && $class->offeredSubjects()->exists() && ! $class->offeredSubjects()->whereKey($validated['subject_id'])->exists()) {
+            throw ValidationException::withMessages([
+                'subject_id' => 'Choose a subject that is offered in the selected class.',
+            ]);
+        }
     }
 
     protected function ensureAssignmentBelongsToSchool(TeacherAssignment $assignment): void

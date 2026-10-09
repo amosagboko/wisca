@@ -3,12 +3,17 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Models\AcademicSession;
+use App\Models\Term;
+use App\Services\AcademicPeriodService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class AcademicSessionController extends AdminController
 {
+    public function __construct(protected AcademicPeriodService $periods) {}
+
     public function index(): View
     {
         $sessions = AcademicSession::where('school_id', $this->schoolId())
@@ -30,21 +35,55 @@ class AcademicSessionController extends AdminController
             'name' => ['required', 'string', 'max:255'],
             'start_date' => ['required', 'date'],
             'end_date' => ['required', 'date', 'after_or_equal:start_date'],
-            'status' => ['required', 'in:upcoming,active,closed'],
-            'is_current' => ['nullable', 'boolean'],
+            'activate' => ['sometimes', 'boolean'],
+            'first_term_name' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $session = AcademicSession::create([
-            ...$validated,
-            'school_id' => $this->schoolId(),
-            'is_current' => $request->boolean('is_current'),
-        ]);
+        $activate = $request->boolean('activate');
 
-        if ($session->is_current) {
-            $session->markAsCurrent();
+        $session = DB::transaction(function () use ($validated, $activate) {
+            $session = AcademicSession::create([
+                'name' => $validated['name'],
+                'start_date' => $validated['start_date'],
+                'end_date' => $validated['end_date'],
+                'school_id' => $this->schoolId(),
+                'is_current' => false,
+                'status' => 'upcoming',
+            ]);
+
+            if ($activate) {
+                $term = Term::create([
+                    'academic_session_id' => $session->id,
+                    'name' => $validated['first_term_name'] ?: 'First Term',
+                    'start_date' => $validated['start_date'],
+                    'end_date' => $validated['end_date'],
+                    'sequence' => 1,
+                    'status' => 'upcoming',
+                    'is_current' => false,
+                ]);
+
+                $this->periods->activateSession(auth()->user(), $session, $term);
+            }
+
+            return $session;
+        });
+
+        if ($activate) {
+            return redirect()->route('admin.sessions.index')
+                ->with('success', $session->name.' is now the current academic session. Add further terms if this year has more than one.');
         }
 
-        return redirect()->route('admin.sessions.index')->with('success', 'Academic session created.');
+        return redirect()->route('admin.sessions.index')
+            ->with('success', 'Future academic session created. Add terms, then activate it — admin does not need another role to approve.');
+    }
+
+    public function activate(AcademicSession $session): RedirectResponse
+    {
+        abort_unless($session->school_id === $this->schoolId(), 404);
+
+        $this->periods->activateSession(auth()->user(), $session);
+
+        return redirect()->route('admin.sessions.index')->with('success', $session->name.' is now the current academic session.');
     }
 
     public function edit(AcademicSession $session): View
@@ -62,18 +101,9 @@ class AcademicSessionController extends AdminController
             'name' => ['required', 'string', 'max:255'],
             'start_date' => ['required', 'date'],
             'end_date' => ['required', 'date', 'after_or_equal:start_date'],
-            'status' => ['required', 'in:upcoming,active,closed'],
-            'is_current' => ['nullable', 'boolean'],
         ]);
 
-        $session->update([
-            ...$validated,
-            'is_current' => $request->boolean('is_current'),
-        ]);
-
-        if ($session->is_current) {
-            $session->markAsCurrent();
-        }
+        $session->update($validated);
 
         return redirect()->route('admin.sessions.index')->with('success', 'Academic session updated.');
     }
@@ -82,21 +112,12 @@ class AcademicSessionController extends AdminController
     {
         abort_unless($session->school_id === $this->schoolId(), 404);
 
-        if ($session->is_current) {
-            return back()->withErrors(['session' => 'Cannot delete the current academic session. Set another session as current first.']);
+        if ($session->is_current || $this->periods->sessionHasDependents($session)) {
+            return back()->withErrors(['session' => 'Cannot delete the current session or a session that has historical academic records.']);
         }
 
         $session->delete();
 
         return redirect()->route('admin.sessions.index')->with('success', 'Academic session deleted.');
-    }
-
-    public function setCurrent(AcademicSession $session): RedirectResponse
-    {
-        abort_unless($session->school_id === $this->schoolId(), 404);
-
-        $session->markAsCurrent();
-
-        return back()->with('success', "{$session->name} is now the current session.");
     }
 }

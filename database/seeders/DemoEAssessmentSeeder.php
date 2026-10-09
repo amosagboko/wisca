@@ -30,7 +30,7 @@ class DemoEAssessmentSeeder extends Seeder
         }
 
         $verifier = User::where('email', 'hos@wisca.test')->first()
-            ?? User::where('school_id', $school->id)->whereHas('roles', fn ($q) => $q->whereIn('name', ['head_of_school', 'admin', 'it_consultant']))->first()
+            ?? User::where('school_id', $school->id)->whereHas('roles', fn ($q) => $q->whereIn('name', ['head_of_school', 'admin', 'ict_coordinator', 'it_consultant']))->first()
             ?? User::where('school_id', $school->id)->first();
 
         if (! $verifier) {

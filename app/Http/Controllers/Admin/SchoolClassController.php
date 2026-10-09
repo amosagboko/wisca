@@ -21,7 +21,7 @@ class SchoolClassController extends AdminController
 
     public function create(): View
     {
-        return view('admin.classes.form', ['class' => new SchoolClass(['status' => 'active', 'display_order' => 0])]);
+        return view('admin.classes.form', ['class' => new SchoolClass(['status' => 'active'])]);
     }
 
     public function store(Request $request): RedirectResponse
@@ -66,7 +66,6 @@ class SchoolClassController extends AdminController
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'level' => ['required', 'string', 'max:255'],
-            'display_order' => ['nullable', 'integer', 'min:0'],
             'status' => ['required', 'in:active,inactive'],
         ]);
     }

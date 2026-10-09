@@ -1,16 +1,4 @@
-@php
-    $item = [
-        'teacherId' => $log->teacher_id,
-        'classId' => $log->school_class_id,
-        'subjectId' => $log->subject_id,
-        'teacher' => $log->teacher->name,
-        'className' => $log->schoolClass->name,
-        'subject' => $log->subject->name,
-        'topic' => $log->topic->title,
-    ];
-@endphp
-
-<article x-show="match(@js($item))" x-cloak class="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+<article id="review-coverage-{{ $log->id }}" class="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
     <div class="flex flex-wrap justify-between gap-4">
         <div class="min-w-0 max-w-xl">
             <div class="flex items-center gap-3">
