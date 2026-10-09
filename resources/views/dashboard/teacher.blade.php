@@ -23,10 +23,22 @@
         :meta="'Week '.$week_number.($term ? ' of '.$term->name : '').' · '.$session->name.'. Do the next piece of work; HOD reviews the evidence.'"
     />
 
+    @php
+        $taskInbox = $inbox ?? [];
+        $taskTotal = (int) ($taskInbox['total'] ?? collect($tasks ?? [])->count());
+    @endphp
     <x-portal.work-inbox
         title="Due this week"
-        subtitle="One inbox. Each item opens the existing form — plans, coverage, homework, register, or marks."
-        :items="$tasks ?? collect()"
+        :subtitle="$taskTotal === 0
+            ? 'One inbox. Each item opens the existing form — plans, coverage, homework, register, or marks.'
+            : $taskTotal.' item'.($taskTotal === 1 ? '' : 's').' this week, grouped by activity then class.'"
+        :items="$taskInbox['items'] ?? $tasks ?? collect()"
+        :grouped="$taskInbox['groups'] ?? null"
+        :types="$taskInbox['types'] ?? null"
+        :paginator="$taskInbox['paginator'] ?? null"
+        :active-type="$taskInbox['active_type'] ?? ''"
+        :total="$taskTotal"
+        :filtered-total="$taskInbox['filtered_total'] ?? $taskTotal"
         empty="Nothing due from your assignments this week. Coverage, homework, and attendance summaries stay below."
     />
 

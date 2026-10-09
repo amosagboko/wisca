@@ -12,9 +12,10 @@ use App\Services\CurriculumDashboardService;
 use App\Services\DashboardService;
 use App\Services\HodReviewFeed;
 use App\Services\LeadershipReviewFeed;
+use App\Services\TeacherTaskFeed;
+use App\Services\WorkInbox;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
 
@@ -91,6 +92,12 @@ class DashboardController extends Controller
             $ops = $term
                 ? $leadership->compose($user, $session, $term)
                 : ['items' => collect(), 'counts' => [], 'week_number' => 1, 'review' => null];
+            $ops['inbox'] = WorkInbox::present(
+                collect($ops['items'] ?? []),
+                $request,
+                LeadershipReviewFeed::TYPE_LABELS,
+                'none',
+            );
 
             return view('dashboard.executive', [
                 'summary'     => $dashboard->executiveSummary($user->school_id, $session->id),
@@ -109,10 +116,6 @@ class DashboardController extends Controller
             $filterSubjectId = $request->integer('subject_id');
             $filterWeek      = $request->integer('week');
             $filterGroup     = (string) $request->query('group', 'teacher');
-            $inboxType       = (string) $request->query('inbox_type', '');
-            if ($inboxType !== '' && ! array_key_exists($inboxType, HodReviewFeed::TYPE_LABELS)) {
-                $inboxType = '';
-            }
 
             $allTerms = Term::where('academic_session_id', $session->id)
                 ->orderBy('start_date')->get();
@@ -137,29 +140,19 @@ class DashboardController extends Controller
             $data['pending_exams']      = ($data['exam_sittings'] ?? collect())
                 ->filter(fn ($row) => ($row['review_status'] ?? null) === 'submitted')
                 ->values();
-            $reviewAll = $reviews->compose($data, null);
-            $filteredFeed = $inboxType === ''
-                ? $reviewAll
-                : $reviewAll->where('type', $inboxType)->values();
-            $inboxPage = max(1, $request->integer('inbox_page'));
-            $pageItems = $filteredFeed->forPage($inboxPage, HodReviewFeed::INBOX_LIMIT)->values();
-
-            $data['review_feed'] = $pageItems;
-            $data['review_feed_total'] = $reviewAll->count();
-            $data['review_feed_filtered_total'] = $filteredFeed->count();
-            $data['review_feed_types'] = $reviews->typeCounts($reviewAll);
-            $data['review_feed_groups'] = $reviews->grouped($pageItems, $filterGroup);
-            $data['review_feed_paginator'] = new LengthAwarePaginator(
-                $pageItems,
-                $filteredFeed->count(),
-                HodReviewFeed::INBOX_LIMIT,
-                $inboxPage,
-                [
-                    'path' => $request->url(),
-                    'pageName' => 'inbox_page',
-                    'query' => $request->except('inbox_page'),
-                ]
+            $inbox = WorkInbox::present(
+                $reviews->compose($data, null),
+                $request,
+                HodReviewFeed::TYPE_LABELS,
+                $filterGroup,
             );
+            $data['review_feed'] = $inbox['items'];
+            $data['review_feed_total'] = $inbox['total'];
+            $data['review_feed_filtered_total'] = $inbox['filtered_total'];
+            $data['review_feed_types'] = $inbox['types'];
+            $data['review_feed_groups'] = $inbox['groups'];
+            $data['review_feed_paginator'] = $inbox['paginator'];
+            $inboxType = $inbox['active_type'];
 
             $hodFilters = compact(
                 'sessionId', 'termId', 'filterTeacherId', 'filterClassId', 'filterSubjectId', 'filterWeek', 'filterGroup', 'inboxType'
@@ -183,8 +176,31 @@ class DashboardController extends Controller
         }
 
         if ($user->isAdminOfficer()) {
+            $week = $attendance->officerWeek($session);
+            $week['inbox'] = WorkInbox::present(
+                collect($week['missing_classes'] ?? [])->map(function ($class) {
+                    return [
+                        'key' => 'register-'.$class->id,
+                        'type' => 'register',
+                        'urgency' => 10,
+                        'title' => 'Take register',
+                        'meta' => $class->name.' · No register for the suggested date.',
+                        'href' => route('attendance.create', ['class' => $class->id]),
+                        'cta' => 'Take register',
+                        'badge' => 'Today',
+                        'blocked' => false,
+                        'teacher' => null,
+                        'class' => $class->name,
+                        'subject' => null,
+                    ];
+                })->values(),
+                $request,
+                ['register' => 'Registers still to take'],
+                'class',
+            );
+
             return view('dashboard.officer', [
-                ...$attendance->officerWeek($session),
+                ...$week,
                 'session'     => $session,
                 'allSessions' => $allSessions,
             ]);
@@ -198,11 +214,56 @@ class DashboardController extends Controller
                 ? $allTerms->firstWhere('id', $termId)
                 : Term::currentForSession($session->id);
 
+            $summary = $term
+                ? $atRisk->monthSummary($session, $term)
+                : ['identified' => 0, 'with_plan' => 0, 'without_plan' => 0, 'rate' => 0.0, 'records' => collect()];
+            $unflagged = $term ? $atRisk->belowPassUnflagged($session, $term) : collect();
+            $gaps = collect($summary['records'] ?? [])->reject->hasActivePlan()->values();
+            $supportItems = $unflagged->map(function (array $row) {
+                $learner = $row['learner'];
+
+                return [
+                    'key' => 'unflagged-'.$learner->id,
+                    'type' => 'unflagged',
+                    'urgency' => 10,
+                    'title' => $learner->name,
+                    'meta' => ($learner->schoolClass->name ?? 'Class').' · Verified score '.number_format((float) $row['lowest'], 0).'% is below pass mark.',
+                    'href' => null,
+                    'cta' => 'Flag learner',
+                    'badge' => 'Not flagged',
+                    'blocked' => false,
+                    'teacher' => null,
+                    'class' => $learner->schoolClass->name ?? null,
+                    'subject' => null,
+                    'form' => [
+                        'action' => route('at-risk.from-exam'),
+                        'fields' => ['learner_id' => $learner->id],
+                    ],
+                ];
+            })->concat($gaps->map(function ($record) {
+                return [
+                    'key' => 'no-plan-'.$record->id,
+                    'type' => 'no-plan',
+                    'urgency' => 20,
+                    'title' => $record->learner->name,
+                    'meta' => $record->schoolClass->name.' · '.implode(', ', $record->factorLabels()),
+                    'href' => route('at-risk.plans.create', $record),
+                    'cta' => 'Add plan',
+                    'badge' => 'No plan',
+                    'blocked' => false,
+                    'teacher' => null,
+                    'class' => $record->schoolClass->name,
+                    'subject' => null,
+                ];
+            }))->values();
+
             return view('dashboard.support', [
-                'at_risk'     => $term
-                    ? $atRisk->monthSummary($session, $term)
-                    : ['identified' => 0, 'with_plan' => 0, 'without_plan' => 0, 'rate' => 0.0, 'records' => collect()],
-                'unflagged'   => $term ? $atRisk->belowPassUnflagged($session, $term) : collect(),
+                'at_risk'     => $summary,
+                'unflagged'   => $unflagged,
+                'inbox'       => WorkInbox::present($supportItems, $request, [
+                    'unflagged' => 'Below pass — not flagged',
+                    'no-plan' => 'Plans needed',
+                ], 'class'),
                 'session'     => $session,
                 'term'        => $term,
                 'allSessions' => $allSessions,
@@ -213,8 +274,16 @@ class DashboardController extends Controller
         }
 
         if ($user->isTeacher()) {
+            $week = $curriculum->teacherWeek($user, $session);
+            $week['inbox'] = WorkInbox::present(
+                collect($week['tasks'] ?? []),
+                $request,
+                TeacherTaskFeed::TYPE_LABELS,
+                'class',
+            );
+
             return view('dashboard.teacher', [
-                ...$curriculum->teacherWeek($user, $session),
+                ...$week,
                 'session'     => $session,
                 'allSessions' => $allSessions,
             ]);

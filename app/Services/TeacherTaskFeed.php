@@ -38,6 +38,21 @@ class TeacherTaskFeed
 
     public const URGENCY_WAITING = 90;
 
+    /**
+     * @var array<string, string>
+     */
+    public const TYPE_LABELS = [
+        'plan' => 'Lesson plans',
+        'coverage' => 'Coverage logs',
+        'catch-up' => 'Catch-up',
+        'waiting' => 'Waiting on HOD',
+        'register' => 'Registers',
+        'homework' => 'Homework',
+        'marks' => 'Marksheets',
+        'at-risk-flag' => 'Flag learners',
+        'at-risk-plan' => 'Plans needed',
+    ];
+
     public function __construct(
         protected AcademicPeriodService $periods,
         protected AcademicReportingPeriod $reporting,
@@ -108,6 +123,10 @@ class TeacherTaskFeed
             $log = $topic->latestCoverageLog;
             $catchUp = $topic->catchUpPlan?->isOpen() ?? false;
             $context = $scheme->schoolClass->name.' · '.$scheme->subject->name;
+            $scope = [
+                'class' => $scheme->schoolClass->name,
+                'subject' => $scheme->subject->name,
+            ];
             $label = $catchUp
                 ? 'Catch-up · Wk '.$topic->week_number.' '.$topic->title
                 : 'Wk '.$topic->week_number.' '.$topic->title;
@@ -123,6 +142,7 @@ class TeacherTaskFeed
                     null,
                     'Waiting on HOD',
                     $blocked,
+                    $scope,
                 );
             }
 
@@ -137,6 +157,7 @@ class TeacherTaskFeed
                     null,
                     'Waiting on HOD',
                     $blocked,
+                    $scope,
                 );
             }
 
@@ -151,7 +172,7 @@ class TeacherTaskFeed
 
                 return $this->task(
                     'plan-'.$topic->id,
-                    'plan',
+                    $catchUp ? 'catch-up' : 'plan',
                     $urgency,
                     $label,
                     $context.($rejected
@@ -161,6 +182,7 @@ class TeacherTaskFeed
                     $blocked ? null : ($rejected ? 'Revise lesson plan' : 'Submit lesson plan'),
                     $rejected ? 'Rejected' : ($catchUp ? 'Catch-up' : ($overdue ? 'Overdue' : 'Due')),
                     $blocked,
+                    $scope,
                 );
             }
 
@@ -170,7 +192,7 @@ class TeacherTaskFeed
 
                 return $this->task(
                     'coverage-'.$topic->id,
-                    'coverage',
+                    $catchUp ? 'catch-up' : 'coverage',
                     $rejected || $catchUp ? ($rejected ? self::URGENCY_REJECTED : self::URGENCY_CATCH_UP) : self::URGENCY_COVERAGE,
                     $label,
                     $context.($rejected
@@ -180,6 +202,7 @@ class TeacherTaskFeed
                     $blocked ? null : ($rejected ? 'Resubmit coverage' : 'Log coverage'),
                     $rejected ? 'Rejected' : ($catchUp ? 'Catch-up' : 'Deliver'),
                     $blocked,
+                    $scope,
                 );
             }
 
@@ -222,6 +245,8 @@ class TeacherTaskFeed
                             : (string) $log->attendance_date;
                     })->first();
 
+                $scope = ['class' => $assignment->schoolClass->name];
+
                 if ($relevant) {
                     return $this->captureFollowUp(
                         $relevant,
@@ -233,6 +258,7 @@ class TeacherTaskFeed
                         $blocked,
                         'Revise register',
                         'Register awaiting HOD verification.',
+                        $scope,
                     );
                 }
 
@@ -250,6 +276,7 @@ class TeacherTaskFeed
                     $blocked ? null : 'Take register',
                     'Today',
                     $blocked,
+                    $scope,
                 );
             })
             ->filter()
@@ -279,6 +306,10 @@ class TeacherTaskFeed
             })->first();
             $pair = $assignment->school_class_id.':'.$assignment->subject_id;
             $context = $assignment->schoolClass->name.' · '.$assignment->subject->name;
+            $scope = [
+                'class' => $assignment->schoolClass->name,
+                'subject' => $assignment->subject->name,
+            ];
 
             if ($latest) {
                 return $this->captureFollowUp(
@@ -291,6 +322,7 @@ class TeacherTaskFeed
                     $blocked,
                     'Revise homework',
                     'Homework awaiting HOD verification.',
+                    $scope,
                 );
             }
 
@@ -304,6 +336,7 @@ class TeacherTaskFeed
                 $blocked ? null : 'Log homework',
                 'This week',
                 $blocked,
+                $scope,
             );
         })->filter()->values();
     }
@@ -328,6 +361,10 @@ class TeacherTaskFeed
             $query = ['assignment' => $assignment->school_class_id.':'.$assignment->subject_id];
             $href = $blocked ? null : route('exam-results.edit', $query);
             $context = $assignment->schoolClass->name.' · '.$assignment->subject->name;
+            $scope = [
+                'class' => $assignment->schoolClass->name,
+                'subject' => $assignment->subject->name,
+            ];
             $status = (string) ($sitting['review_status'] ?? 'incomplete');
 
             if ($recorded < $enrolled) {
@@ -341,6 +378,7 @@ class TeacherTaskFeed
                     $blocked ? null : 'Open marksheet',
                     'Incomplete',
                     $blocked,
+                    $scope,
                 );
             }
 
@@ -355,6 +393,7 @@ class TeacherTaskFeed
                     $blocked ? null : 'Revise marksheet',
                     'Rejected',
                     $blocked,
+                    $scope,
                 );
             }
 
@@ -369,6 +408,7 @@ class TeacherTaskFeed
                     null,
                     'Waiting on HOD',
                     $blocked,
+                    $scope,
                 );
             }
 
@@ -400,6 +440,7 @@ class TeacherTaskFeed
                 $blocked ? null : 'Open caseload',
                 'Not flagged',
                 $blocked,
+                ['class' => $learner->schoolClass->name ?? null],
             );
         });
 
@@ -422,6 +463,7 @@ class TeacherTaskFeed
                     $blocked ? null : ($teacher->canManageInterventionPlans() ? 'Add intervention plan' : 'Open caseload'),
                     'No plan',
                     $blocked,
+                    ['class' => $record->schoolClass->name ?? null],
                 );
             });
 
@@ -441,6 +483,7 @@ class TeacherTaskFeed
         bool $blocked,
         string $reviseCta,
         string $waitingMeta,
+        array $scope = [],
     ): ?array {
         if ($log->isRejected()) {
             return $this->task(
@@ -453,6 +496,7 @@ class TeacherTaskFeed
                 $blocked ? null : $reviseCta,
                 'Rejected',
                 $blocked,
+                $scope,
             );
         }
 
@@ -467,6 +511,7 @@ class TeacherTaskFeed
                 null,
                 'Waiting on HOD',
                 $blocked,
+                $scope,
             );
         }
 
@@ -486,6 +531,7 @@ class TeacherTaskFeed
         ?string $cta,
         string $badge,
         bool $blocked,
+        array $scope = [],
     ): array {
         if ($blocked) {
             $href = null;
@@ -494,6 +540,21 @@ class TeacherTaskFeed
             $meta .= ' New records are blocked until the term is open.';
         }
 
-        return compact('key', 'type', 'urgency', 'title', 'meta', 'href', 'cta', 'badge', 'blocked');
+        return [
+            'key' => $key,
+            'type' => $type,
+            'type_label' => self::TYPE_LABELS[$type] ?? $type,
+            'urgency' => $urgency,
+            'title' => $title,
+            'meta' => $meta,
+            'href' => $href,
+            'cta' => $cta,
+            'badge' => $badge,
+            'blocked' => $blocked,
+            'teacher' => $scope['teacher'] ?? null,
+            'class' => $scope['class'] ?? null,
+            'subject' => $scope['subject'] ?? null,
+            'form' => $scope['form'] ?? null,
+        ];
     }
 }

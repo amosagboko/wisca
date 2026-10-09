@@ -1,7 +1,5 @@
 @php
     $percent = $at_risk['identified'] > 0 ? round($at_risk['rate'] * 100, 1) : null;
-    $gaps = $at_risk['records']->reject->hasActivePlan()->values();
-    $unflagged = $unflagged ?? collect();
 @endphp
 
 <x-portal-layout title="Learning Support">
@@ -67,41 +65,24 @@
         @endif
     </section>
 
-    @if ($unflagged->isNotEmpty())
-        <x-portal.panel class="mb-6" tone="danger" title="Below pass mark — not flagged" subtitle="These exam sittings are below the AE-02 pass mark and are not yet in the AE-07 denominator.">
-            <div class="flex flex-wrap gap-2">
-                @foreach ($unflagged as $row)
-                    <form method="POST" action="{{ route('at-risk.from-exam') }}">
-                        @csrf
-                        <input type="hidden" name="learner_id" value="{{ $row['learner']->id }}">
-                        <button type="submit" class="inline-flex items-center rounded-full border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-[#0f2d4a] hover:text-[#0f2d4a]">
-                            {{ $row['learner']->name }} · {{ number_format($row['lowest'], 0) }}%
-                        </button>
-                    </form>
-                @endforeach
-            </div>
-        </x-portal.panel>
-    @endif
-
-    <x-portal.panel class="mb-6" title="Learners without an active plan" subtitle="AE-07 stays off 100% until each of these has a live Tier 2 or Tier 3 plan.">
-        @if ($gaps->isEmpty())
-            <p class="text-sm text-slate-500">Every currently identified learner has an active plan.</p>
-        @else
-            <div class="space-y-3">
-                @foreach ($gaps as $record)
-                    <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
-                        <div>
-                            <p class="font-medium text-slate-800">{{ $record->learner->name }}</p>
-                            <p class="text-xs text-slate-500">{{ $record->schoolClass->name }} · {{ implode(', ', $record->factorLabels()) }}</p>
-                        </div>
-                        <a href="{{ route('at-risk.plans.create', $record) }}" class="inline-flex items-center rounded-lg bg-[#0f2d4a] px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-white transition hover:bg-[#163d63]">
-                            Add plan
-                        </a>
-                    </div>
-                @endforeach
-            </div>
-        @endif
-    </x-portal.panel>
+    @php
+        $supportInbox = $inbox ?? [];
+        $supportTotal = (int) ($supportInbox['total'] ?? 0);
+    @endphp
+    <x-portal.work-inbox
+        title="Work due"
+        :subtitle="$supportTotal === 0
+            ? 'Flag below-pass learners and add Tier 2/3 plans here. AE-07 stays off 100% until each identified learner has an active plan.'
+            : $supportTotal.' item'.($supportTotal === 1 ? '' : 's').', grouped by activity then class.'"
+        :items="$supportInbox['items'] ?? collect()"
+        :grouped="$supportInbox['groups'] ?? null"
+        :types="$supportInbox['types'] ?? null"
+        :paginator="$supportInbox['paginator'] ?? null"
+        :active-type="$supportInbox['active_type'] ?? ''"
+        :total="$supportTotal"
+        :filtered-total="$supportInbox['filtered_total'] ?? $supportTotal"
+        empty="No unflagged below-pass learners or identified learners without a plan."
+    />
 
     <x-portal.panel title="Caseload" subtitle="Open identifications this session.">
         @if ($at_risk['records']->isEmpty())

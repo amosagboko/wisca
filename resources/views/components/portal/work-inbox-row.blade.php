@@ -17,7 +17,17 @@
         </div>
         <p class="mt-1 text-sm text-slate-500">{{ $task['meta'] }}</p>
     </div>
-    @if ($task['href'] && $task['cta'])
+    @if (! empty($task['form']['action']) && $task['cta'])
+        <form method="POST" action="{{ $task['form']['action'] }}" class="shrink-0">
+            @csrf
+            @foreach ($task['form']['fields'] ?? [] as $name => $value)
+                <input type="hidden" name="{{ $name }}" value="{{ $value }}">
+            @endforeach
+            <button type="submit" class="inline-flex items-center rounded-lg bg-[#0f2d4a] px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-white transition hover:bg-[#163d63]">
+                {{ $task['cta'] }}
+            </button>
+        </form>
+    @elseif ($task['href'] && $task['cta'])
         <a href="{{ $task['href'] }}" class="inline-flex shrink-0 items-center rounded-lg bg-[#0f2d4a] px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-white transition hover:bg-[#163d63]">
             {{ $task['cta'] }}
         </a>

@@ -52,7 +52,7 @@
     @if ($items->isEmpty())
         <p class="text-sm text-slate-500">
             @if ($activeType !== '' && ($filteredTotal ?? 0) === 0 && $allCount > 0)
-                No {{ \App\Services\HodReviewFeed::TYPE_LABELS[$activeType] ?? 'items' }} match the current filters.
+                No {{ optional($types->firstWhere('type', $activeType))['label'] ?? 'items' }} match the current filters.
             @else
                 {{ $empty }}
             @endif

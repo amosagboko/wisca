@@ -213,6 +213,7 @@ class LeadershipWeekReviewTest extends TestCase
             ->get(route('dashboard'))
             ->assertOk()
             ->assertSee('Operational exceptions')
+            ->assertSee('Waiting on HOD')
             ->assertSee('Lesson plans awaiting HOD')
             ->assertSee('Homework awaiting HOD')
             ->assertSee('Record week review')

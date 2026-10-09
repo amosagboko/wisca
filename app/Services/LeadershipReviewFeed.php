@@ -15,6 +15,16 @@ use Illuminate\Support\Collection;
 
 class LeadershipReviewFeed
 {
+    /**
+     * @var array<string, string>
+     */
+    public const TYPE_LABELS = [
+        'hod-review' => 'Waiting on HOD',
+        'overdue' => 'Overdue HOD reviews',
+        'at-risk' => 'Intervention gaps',
+        'catch-up' => 'Catch-up gaps',
+    ];
+
     public function __construct(
         protected HomeworkCalculationService $homework,
         protected AtRiskCalculationService $atRisk,
@@ -59,6 +69,7 @@ class LeadershipReviewFeed
         $items = collect([
             $this->countItem(
                 'lead-plans',
+                'hod-review',
                 'Lesson plans awaiting HOD',
                 $plans.' submitted plan'.($plans === 1 ? '' : 's').' still need department approval.',
                 route('lesson-plans.index', ['session_id' => $session->id, 'term_id' => $term->id, 'status' => 'submitted']),
@@ -67,6 +78,7 @@ class LeadershipReviewFeed
             ),
             $this->countItem(
                 'lead-plan-sla',
+                'overdue',
                 'Lesson plans past 24-hour SLA',
                 $planSla.' submitted plan'.($planSla === 1 ? '' : 's').' have waited more than 24 hours for HOD approve or return. Executive AE-05 still uses teacher on-time vs the planning-policy due day.',
                 route('lesson-plans.index', ['session_id' => $session->id, 'term_id' => $term->id, 'status' => 'submitted']),
@@ -76,6 +88,7 @@ class LeadershipReviewFeed
             ),
             $this->countItem(
                 'lead-coverage',
+                'hod-review',
                 'Coverage awaiting HOD',
                 $coverage.' delivery log'.($coverage === 1 ? '' : 's').' still need verification.',
                 route('coverage-logs.index', ['session_id' => $session->id]),
@@ -84,6 +97,7 @@ class LeadershipReviewFeed
             ),
             $this->countItem(
                 'lead-homework',
+                'hod-review',
                 'Homework awaiting HOD',
                 $homework.' homework log'.($homework === 1 ? '' : 's').' this instructional week still need verification.',
                 route('homework.index', ['session_id' => $session->id]),
@@ -92,6 +106,7 @@ class LeadershipReviewFeed
             ),
             $this->countItem(
                 'lead-registers',
+                'hod-review',
                 'Registers awaiting HOD',
                 $registers.' register'.($registers === 1 ? '' : 's').' this instructional week still need verification.',
                 route('attendance.index', ['session_id' => $session->id]),
@@ -100,6 +115,7 @@ class LeadershipReviewFeed
             ),
             $this->countItem(
                 'lead-exams',
+                'hod-review',
                 'Marksheets awaiting HOD',
                 $exams.' complete sitting'.($exams === 1 ? '' : 's').' still need verification.',
                 route('exam-results.index'),
@@ -108,6 +124,7 @@ class LeadershipReviewFeed
             ),
             $this->countItem(
                 'lead-iip',
+                'at-risk',
                 'Identified learners without a plan',
                 $withoutPlan.' at-risk learner'.($withoutPlan === 1 ? '' : 's').' still need an active Tier 2/3 plan. AE-07 is unchanged until HOD writes the IIP.',
                 route('at-risk.index', ['session_id' => $session->id, 'plan' => 'without_plan']),
@@ -117,6 +134,7 @@ class LeadershipReviewFeed
             ),
             $this->countItem(
                 'lead-catch-up',
+                'catch-up',
                 'Behind topics without catch-up',
                 $catchUp.' Active SoW topic'.($catchUp === 1 ? '' : 's').' are behind the instructional week without HOD-identified catch-up. AE-01.4 stays 0 until HOD opens catch-up and later verifies delivery.',
                 route('curriculum-coverage.report', ['session_id' => $session->id]),
@@ -229,6 +247,7 @@ class LeadershipReviewFeed
      */
     protected function countItem(
         string $key,
+        string $type,
         string $title,
         string $meta,
         string $href,
@@ -242,14 +261,18 @@ class LeadershipReviewFeed
 
         return [
             'key' => $key,
-            'type' => $key,
-            'urgency' => 10,
+            'type' => $type,
+            'type_label' => self::TYPE_LABELS[$type] ?? $type,
+            'urgency' => $type === 'overdue' ? 5 : 10,
             'title' => $title,
             'meta' => $meta,
             'href' => $href,
             'cta' => $cta,
             'badge' => $badge,
             'blocked' => false,
+            'teacher' => null,
+            'class' => null,
+            'subject' => null,
         ];
     }
 }

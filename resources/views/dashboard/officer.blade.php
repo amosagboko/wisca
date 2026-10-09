@@ -55,22 +55,22 @@
         @endif
     </section>
 
-    <x-portal.panel class="mb-6" title="Classes still to take roll" :subtitle="'Suggested date '.$suggested_date_label.'. One register per class per day.'">
-        @if ($missing_classes->isEmpty())
-            <p class="text-sm text-slate-500">Every class has a register for this date.</p>
-        @else
-            <div class="flex flex-wrap gap-2">
-                @foreach ($missing_classes as $class)
-                    <a href="{{ route('attendance.create', ['class' => $class->id]) }}" class="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-[#0f2d4a] hover:text-[#0f2d4a]">
-                        {{ $class->name }}
-                    </a>
-                @endforeach
-            </div>
-            <a href="{{ route('attendance.create') }}" class="mt-4 inline-flex items-center rounded-lg bg-[#0f2d4a] px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-white transition hover:bg-[#163d63]">
-                Take register
-            </a>
-        @endif
-    </x-portal.panel>
+    @php
+        $officerInbox = $inbox ?? [];
+        $officerTotal = (int) ($officerInbox['total'] ?? $missing_classes->count());
+    @endphp
+    <x-portal.work-inbox
+        title="Classes still to take roll"
+        :subtitle="'Suggested date '.$suggested_date_label.'. One register per class per day'.($officerTotal ? ', grouped by class.' : '.')"
+        :items="$officerInbox['items'] ?? collect()"
+        :grouped="$officerInbox['groups'] ?? null"
+        :types="$officerInbox['types'] ?? null"
+        :paginator="$officerInbox['paginator'] ?? null"
+        :active-type="$officerInbox['active_type'] ?? ''"
+        :total="$officerTotal"
+        :filtered-total="$officerInbox['filtered_total'] ?? $officerTotal"
+        empty="Every class has a register for this date."
+    />
 
     <x-portal.panel title="This week’s registers" subtitle="Present counts against enrolled roll. Update a log if the morning figure was entered early.">
         @if ($attendance_logs->isEmpty())

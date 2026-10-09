@@ -146,6 +146,8 @@ class TeacherTaskFeedTest extends TestCase
             ->get(route('dashboard'))
             ->assertOk()
             ->assertSee('Due this week')
+            ->assertSee('Lesson plans')
+            ->assertSee('Homework')
             ->assertSee('Submit lesson plan')
             ->assertSee('Number Bases')
             ->assertSee('No homework logged this instructional week.')

@@ -38,7 +38,7 @@ class HodReviewFeed
 
     public const URGENCY_AT_RISK_FLAG = 85;
 
-    public const INBOX_LIMIT = 10;
+    public const INBOX_LIMIT = WorkInbox::PAGE_SIZE;
 
     /**
      * @var array<string, string>
@@ -96,15 +96,7 @@ class HodReviewFeed
      */
     public function typeCounts(Collection $items): Collection
     {
-        return $items->groupBy('type')->map(function (Collection $rows, string $type) {
-            return [
-                'type' => $type,
-                'label' => self::TYPE_LABELS[$type] ?? $type,
-                'count' => $rows->count(),
-                'overdue' => $rows->where('badge', 'Overdue')->count(),
-                'urgency' => (int) $rows->min('urgency'),
-            ];
-        })->sortBy('urgency')->values();
+        return WorkInbox::typeCounts($items, self::TYPE_LABELS);
     }
 
     /**
@@ -113,32 +105,7 @@ class HodReviewFeed
      */
     public function grouped(Collection $items, string $groupBy = 'teacher'): Collection
     {
-        return $items->groupBy('type')->map(function (Collection $rows, string $type) use ($groupBy) {
-            $buckets = $groupBy === 'none'
-                ? collect([[
-                    'label' => null,
-                    'items' => $rows->values(),
-                ]])
-                : $rows->groupBy(function (array $item) use ($groupBy) {
-                    if ($groupBy === 'class') {
-                        return trim((string) ($item['class'] ?? '')) !== '' ? $item['class'] : 'No class';
-                    }
-
-                    return trim((string) ($item['teacher'] ?? '')) !== '' ? $item['teacher'] : 'No teacher';
-                })->map(fn (Collection $sub, string $label) => [
-                    'label' => $label,
-                    'items' => $sub->values(),
-                ])->sortBy('label')->values();
-
-            return [
-                'type' => $type,
-                'label' => self::TYPE_LABELS[$type] ?? $type,
-                'count' => $rows->count(),
-                'overdue' => $rows->where('badge', 'Overdue')->count(),
-                'urgency' => (int) $rows->min('urgency'),
-                'groups' => $buckets,
-            ];
-        })->sortBy('urgency')->values();
+        return WorkInbox::grouped($items, $groupBy, self::TYPE_LABELS);
     }
 
     /**

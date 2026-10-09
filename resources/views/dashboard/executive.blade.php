@@ -43,10 +43,22 @@
     <x-dashboard.school-hero :summary="$summary" :session="$session" class="mb-6" />
 
     @if ($term ?? null)
+        @php
+            $leadInbox = $leadership['inbox'] ?? [];
+            $leadTotal = (int) ($leadInbox['total'] ?? collect($leadership['items'] ?? [])->count());
+        @endphp
         <x-portal.work-inbox
             title="Operational exceptions"
-            :subtitle="'Week '.($leadership['week_number'] ?? 1).' · '.$term->name.'. Teachers capture and HODs verify. You review outstanding department work — this does not change AE KPI formulas.'"
-            :items="$leadership['items'] ?? collect()"
+            :subtitle="$leadTotal === 0
+                ? 'Week '.($leadership['week_number'] ?? 1).' · '.$term->name.'. Teachers capture and HODs verify. You review outstanding department work — this does not change AE KPI formulas.'
+                : 'Week '.($leadership['week_number'] ?? 1).' · '.$term->name.'. '.$leadTotal.' outstanding area'.($leadTotal === 1 ? '' : 's').', grouped by type. Teachers capture and HODs verify — this does not change AE KPI formulas.'"
+            :items="$leadInbox['items'] ?? $leadership['items'] ?? collect()"
+            :grouped="$leadInbox['groups'] ?? null"
+            :types="$leadInbox['types'] ?? null"
+            :paginator="$leadInbox['paginator'] ?? null"
+            :active-type="$leadInbox['active_type'] ?? ''"
+            :total="$leadTotal"
+            :filtered-total="$leadInbox['filtered_total'] ?? $leadTotal"
             empty="No outstanding HOD reviews or IIP gaps for this term. You can still record that leadership reviewed the week."
         />
 
