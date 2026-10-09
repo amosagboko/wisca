@@ -32,7 +32,13 @@
         eyebrow="Board & Proprietor Edition"
         title="Strategic Health Overview"
         :meta="'Live KPI monitoring for '.$summary['school_name'].' — session '.$session->name.'.'"
-    />
+    >
+        @if (auth()->user()?->canManageAcademicPeriod())
+            <x-slot:actions>
+                <a href="{{ route('academic-period.show') }}" class="inline-flex items-center rounded-lg border border-white/30 px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-white transition hover:bg-white/10">Academic period</a>
+            </x-slot:actions>
+        @endif
+    </x-portal.page-intro>
 
     @if (session('success'))
         <div class="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">

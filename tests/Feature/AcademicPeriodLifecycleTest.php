@@ -38,7 +38,7 @@ class AcademicPeriodLifecycleTest extends TestCase
      */
     protected function world(): array
     {
-        foreach (['board', 'head_of_school', 'head_of_department', 'teacher', 'admin'] as $role) {
+        foreach (['board', 'head_of_school', 'assistant_head_secondary', 'head_of_department', 'teacher', 'admin'] as $role) {
             Role::findOrCreate($role, 'web');
         }
 
@@ -70,7 +70,7 @@ class AcademicPeriodLifecycleTest extends TestCase
         }
 
         $users = [];
-        foreach (['admin' => 'admin@p.test', 'head_of_school' => 'hos@p.test', 'board' => 'board@p.test', 'teacher' => 'teacher@p.test', 'head_of_department' => 'hod@p.test'] as $role => $email) {
+        foreach (['admin' => 'admin@p.test', 'head_of_school' => 'hos@p.test', 'assistant_head_secondary' => 'ah@p.test', 'board' => 'board@p.test', 'teacher' => 'teacher@p.test', 'head_of_department' => 'hod@p.test'] as $role => $email) {
             $user = User::create([
                 'school_id' => $school->id,
                 'name' => $role,
@@ -133,6 +133,26 @@ class AcademicPeriodLifecycleTest extends TestCase
 
         $this->assertSame(1, $future->terms()->count());
         $this->assertSame(1, AcademicSession::where('school_id', $world['school']->id)->where('is_current', true)->count());
+    }
+
+    public function test_head_of_school_and_board_can_transition_via_http(): void
+    {
+        $world = $this->world();
+
+        $this->actingAs($world['users']['head_of_school'])
+            ->post(route('academic-period.transition'), ['notes' => 'Move to second term'])
+            ->assertRedirect(route('academic-period.show'));
+
+        $this->assertTrue($world['terms'][2]->fresh()->is_current);
+        $this->assertSame('closed', $world['terms'][1]->fresh()->status);
+        $this->assertTrue($world['session']->fresh()->is_current);
+
+        $this->actingAs($world['users']['board'])
+            ->post(route('academic-period.transition'))
+            ->assertRedirect(route('academic-period.show'));
+
+        $this->assertTrue($world['terms'][3]->fresh()->is_current);
+        $this->assertSame('closed', $world['terms'][2]->fresh()->status);
     }
 
     public function test_term_transitions_are_sequential_and_audited(): void
@@ -295,8 +315,9 @@ class AcademicPeriodLifecycleTest extends TestCase
         $service->transitionToNextTerm($world['users']['board']);
 
         $this->actingAs($world['users']['admin'])->get(route('academic-period.show'))->assertOk();
-        $this->actingAs($world['users']['head_of_school'])->get(route('academic-period.show'))->assertOk();
+        $this->actingAs($world['users']['head_of_school'])->get(route('academic-period.show'))->assertOk()->assertSee('Transition term');
         $this->actingAs($world['users']['board'])->get(route('academic-period.show'))->assertOk();
+        $this->actingAs($world['users']['assistant_head_secondary'])->get(route('academic-period.show'))->assertOk();
 
         $this->actingAs($world['users']['teacher'])
             ->get(route('academic-period.show'))
@@ -304,6 +325,10 @@ class AcademicPeriodLifecycleTest extends TestCase
 
         $this->actingAs($world['users']['teacher'])
             ->post(route('academic-period.transition'))
+            ->assertForbidden();
+
+        $this->actingAs($world['users']['head_of_department'])
+            ->get(route('academic-period.show'))
             ->assertForbidden();
 
         $this->expectException(ValidationException::class);

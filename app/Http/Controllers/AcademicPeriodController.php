@@ -70,7 +70,7 @@ class AcademicPeriodController extends Controller
             'is_current' => false,
         ]);
 
-        return back()->with('success', 'Future academic session created. Add its terms. System Admin activates it when the school is ready.');
+        return back()->with('success', 'Future academic session created. Add its First Term, then activate it when the school is ready.');
     }
 
     public function storeTerm(Request $request): RedirectResponse

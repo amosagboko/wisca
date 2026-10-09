@@ -95,12 +95,12 @@ class User extends Authenticatable
 
     public function canManageAcademicPeriod(): bool
     {
-        return $this->isAdmin() || $this->isHoS() || $this->isBoard();
+        return $this->isAdmin() || $this->isHoS() || $this->isBoard() || $this->isAssistantHead();
     }
 
     public function canActivateAcademicPeriod(): bool
     {
-        return $this->isAdmin();
+        return $this->canManageAcademicPeriod();
     }
 
     public function isAdminOfficer(): bool

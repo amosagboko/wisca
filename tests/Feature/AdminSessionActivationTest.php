@@ -157,7 +157,31 @@ class AdminSessionActivationTest extends TestCase
         $this->assertTrue($new->terms()->where('sequence', 1)->where('is_current', true)->exists());
     }
 
-    public function test_head_of_school_and_board_can_prepare_but_cannot_activate(): void
+    public function test_head_of_school_can_transition_to_the_next_term(): void
+    {
+        $world = $this->world();
+
+        $this->actingAs($world['users']['head_of_school'])
+            ->get(route('academic-period.show'))
+            ->assertOk()
+            ->assertSee('Transition term')
+            ->assertSee('Second Term');
+
+        $this->actingAs($world['users']['head_of_school'])
+            ->post(route('academic-period.transition'), ['notes' => 'Move to second term'])
+            ->assertRedirect(route('academic-period.show'));
+
+        $first = Term::where('academic_session_id', $world['session']->id)->where('sequence', 1)->first();
+        $second = Term::where('academic_session_id', $world['session']->id)->where('sequence', 2)->first();
+
+        $this->assertSame('closed', $first->fresh()->status);
+        $this->assertFalse($first->fresh()->is_current);
+        $this->assertTrue($second->fresh()->is_current);
+        $this->assertSame('active', $second->fresh()->status);
+        $this->assertTrue($world['session']->fresh()->is_current);
+    }
+
+    public function test_head_of_school_and_board_can_prepare_and_activate(): void
     {
         $world = $this->world();
 
@@ -184,20 +208,23 @@ class AdminSessionActivationTest extends TestCase
             ->assertRedirect();
 
         $this->actingAs($world['users']['head_of_school'])
-            ->post(route('academic-period.rollover'), ['target_session_id' => $target->id])
-            ->assertForbidden();
-
-        $this->actingAs($world['users']['board'])
-            ->post(route('academic-period.rollover'), ['target_session_id' => $target->id])
-            ->assertForbidden();
-
-        $this->assertFalse($target->fresh()->is_current);
-        $this->assertTrue($world['session']->fresh()->is_current);
-
-        $this->actingAs($world['users']['head_of_school'])
             ->get(route('academic-period.show'))
             ->assertOk()
-            ->assertSee('Prepare future session')
-            ->assertDontSee('Activate session');
+            ->assertSee('Transition term')
+            ->assertSee('Activate session');
+
+        $this->actingAs($world['users']['board'])
+            ->get(route('academic-period.show'))
+            ->assertOk()
+            ->assertSee('Transition term')
+            ->assertSee('Activate session');
+
+        $this->actingAs($world['users']['head_of_school'])
+            ->post(route('academic-period.rollover'), ['target_session_id' => $target->id])
+            ->assertRedirect(route('academic-period.show'));
+
+        $this->assertTrue($target->fresh()->is_current);
+        $this->assertFalse($world['session']->fresh()->is_current);
+        $this->assertSame('closed', $world['session']->fresh()->status);
     }
 }

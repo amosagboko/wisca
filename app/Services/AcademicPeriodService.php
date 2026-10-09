@@ -205,7 +205,7 @@ class AcademicPeriodService
     }
 
     /**
-     * Only System Admin can open or roll over a session. Head of School and Board prepare it.
+     * System Admin, Head of School, Board, and Assistant Head can open or roll over a session.
      */
     public function activateSession(User $actor, AcademicSession $session, ?Term $startingTerm = null, ?string $notes = null): AcademicPeriodTransition
     {
@@ -329,12 +329,12 @@ class AcademicPeriodService
 
     protected function assertCanManage(User $actor): void
     {
-        abort_unless($actor->canManageAcademicPeriod(), 403, 'Only System Admin, Head of School, or Board may change the academic period.');
+        abort_unless($actor->canManageAcademicPeriod(), 403, 'Only System Admin, Head of School, Board, or Assistant Head may change the academic period.');
     }
 
     protected function assertCanActivate(User $actor): void
     {
-        abort_unless($actor->canActivateAcademicPeriod(), 403, 'Only System Admin can activate or roll over an academic session.');
+        abort_unless($actor->canActivateAcademicPeriod(), 403, 'Only System Admin, Head of School, Board, or Assistant Head can activate or roll over an academic session.');
     }
 
     protected function assertSameSchool(User $actor, AcademicSession $session): void

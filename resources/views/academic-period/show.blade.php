@@ -2,7 +2,7 @@
     <x-portal.page-intro
         eyebrow="Configuration"
         title="Academic session and term"
-        meta="Head of School and Board move terms and prepare the next year. System Admin activates a session. Historical records stay on the period they were created under."
+        meta="Head of School, Board, Assistant Head, and System Admin move terms, prepare the next year, and activate a session. Historical records stay on the period they were created under."
     >
         <x-slot:actions>
             @if (auth()->user()->isAdmin() || auth()->user()->isHoS())
@@ -47,12 +47,20 @@
                         <x-primary-button>Transition term</x-primary-button>
                     </form>
                 </x-portal.panel>
+            @elseif ($currentSession && $currentTerm)
+                <x-portal.panel title="Next term is not configured">
+                    <p class="text-sm text-slate-600">
+                        There is no term after <strong>{{ $currentTerm->name }}</strong> (sequence {{ $currentTerm->sequence }}) in {{ $currentSession->name }}.
+                        Add sequence {{ $currentTerm->sequence + 1 }} with <strong>Configure a term</strong> below, then you can transition.
+                        To start a new school year instead, prepare a future session and activate it.
+                    </p>
+                </x-portal.panel>
             @endif
 
             @if ($canRollover)
                 <x-portal.panel title="Activate a prepared session">
                     @if ($targetSessions->isEmpty())
-                        <p class="text-sm text-slate-600">Head of School or Board must prepare a future session with at least one term. You then activate it here. No further approval is required.</p>
+                        <p class="text-sm text-slate-600">Create a future session and add at least First Term below, then activate it here. Head of School, Board, Assistant Head, and System Admin can do this. No further approval is required.</p>
                     @else
                         <p class="text-sm text-slate-600 mb-4">
                             Close <strong>{{ $currentSession->name }} — {{ $currentTerm->name }}</strong>
@@ -76,14 +84,6 @@
                             <x-primary-button>Activate session</x-primary-button>
                         </form>
                     @endif
-                </x-portal.panel>
-            @elseif ($currentSession && ! $nextTerm)
-                <x-portal.panel title="Next session">
-                    <p class="text-sm text-slate-600">
-                        This is the last term in <strong>{{ $currentSession->name }}</strong>.
-                        Prepare the next session and its terms below.
-                        System Admin activates that session — Head of School and Board cannot open it.
-                    </p>
                 </x-portal.panel>
             @endif
 
@@ -116,7 +116,7 @@
             @endif
 
             <x-portal.panel title="Prepare future session">
-                <p class="mb-4 text-sm text-slate-600">Create the next school year and add its terms. This does not make it current. System Admin activates it.</p>
+                <p class="mb-4 text-sm text-slate-600">Create the next school year and add its terms. This does not make it current until you activate it above.</p>
                 <form method="POST" action="{{ route('academic-period.sessions.store') }}" class="grid gap-4 sm:grid-cols-2">
                     @csrf
                     <div class="sm:col-span-2">
