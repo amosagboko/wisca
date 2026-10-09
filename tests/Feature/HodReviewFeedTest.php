@@ -161,6 +161,8 @@ class HodReviewFeedTest extends TestCase
             ->get(route('dashboard'))
             ->assertOk()
             ->assertSee('Reviews due')
+            ->assertSee('Lesson plans')
+            ->assertSee('Missing homework')
             ->assertSee('Review plan')
             ->assertSee('Number Bases')
             ->assertSee('Homework not logged')
@@ -169,6 +171,71 @@ class HodReviewFeedTest extends TestCase
             ->assertDontSee('Due this week')
             ->assertDontSee('Approve homework')
             ->assertDontSee('SLA overdue');
+    }
+
+    public function test_reviews_due_type_filter_hides_other_activity_groups(): void
+    {
+        $world = $this->world();
+
+        LessonPlan::create([
+            'topic_id' => $world['topic']->id,
+            'teacher_id' => $world['users']['teacher']->id,
+            'school_class_id' => $world['class']->id,
+            'subject_id' => $world['subject']->id,
+            'objectives' => 'Convert bases',
+            'activities' => 'Teach',
+            'assessment' => 'Quiz',
+            'status' => 'submitted',
+            'submitted_at' => now(),
+            'due_at' => now()->addDay(),
+            'on_time' => true,
+        ]);
+
+        $this->actingAs($world['users']['head_of_department'])
+            ->get(route('dashboard', ['inbox_type' => 'plan']))
+            ->assertOk()
+            ->assertSee('Number Bases')
+            ->assertSee('Review plan')
+            ->assertDontSee('Homework not logged');
+    }
+
+    public function test_reviews_due_paginates_large_queues(): void
+    {
+        $world = $this->world();
+
+        for ($i = 1; $i <= 12; $i++) {
+            $topic = Topic::create([
+                'scheme_of_work_id' => $world['scheme']->id,
+                'week_number' => 1,
+                'title' => 'Queued topic '.$i,
+                'learning_objectives' => ['Convert bases'],
+                'display_order' => $i + 1,
+                'status' => 'planned',
+            ]);
+            LessonPlan::create([
+                'topic_id' => $topic->id,
+                'teacher_id' => $world['users']['teacher']->id,
+                'school_class_id' => $world['class']->id,
+                'subject_id' => $world['subject']->id,
+                'objectives' => 'Convert bases',
+                'activities' => 'Teach',
+                'assessment' => 'Quiz',
+                'status' => 'submitted',
+                'submitted_at' => now(),
+                'due_at' => now()->addDay(),
+                'on_time' => true,
+            ]);
+        }
+
+        $pageOne = $this->actingAs($world['users']['head_of_department'])
+            ->get(route('dashboard', ['inbox_type' => 'plan']));
+        $pageOne->assertOk()->assertSee('inbox_page=2');
+
+        $this->actingAs($world['users']['head_of_department'])
+            ->get(route('dashboard', ['inbox_type' => 'plan', 'inbox_page' => 2]))
+            ->assertOk()
+            ->assertSee('Queued topic')
+            ->assertSee('Lesson plans');
     }
 
     public function test_logged_homework_drops_gap_from_hod_feed(): void

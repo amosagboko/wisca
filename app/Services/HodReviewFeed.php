@@ -38,7 +38,24 @@ class HodReviewFeed
 
     public const URGENCY_AT_RISK_FLAG = 85;
 
-    public const INBOX_LIMIT = 25;
+    public const INBOX_LIMIT = 10;
+
+    /**
+     * @var array<string, string>
+     */
+    public const TYPE_LABELS = [
+        'plan' => 'Lesson plans',
+        'coverage' => 'Coverage logs',
+        'catch-up' => 'Catch-up needed',
+        'homework-review' => 'Homework reviews',
+        'register-review' => 'Register reviews',
+        'exam-review' => 'Marksheet reviews',
+        'at-risk-plan' => 'Intervention plans needed',
+        'exam' => 'Incomplete marksheets',
+        'register' => 'Missing registers',
+        'homework' => 'Missing homework',
+        'at-risk-flag' => 'Unflagged learners',
+    ];
 
     /**
      * @param  array<string, mixed>  $ops
@@ -74,6 +91,57 @@ class HodReviewFeed
     }
 
     /**
+     * @param  Collection<int, array<string, mixed>>  $items
+     * @return Collection<int, array{type: string, label: string, count: int, overdue: int, urgency: int}>
+     */
+    public function typeCounts(Collection $items): Collection
+    {
+        return $items->groupBy('type')->map(function (Collection $rows, string $type) {
+            return [
+                'type' => $type,
+                'label' => self::TYPE_LABELS[$type] ?? $type,
+                'count' => $rows->count(),
+                'overdue' => $rows->where('badge', 'Overdue')->count(),
+                'urgency' => (int) $rows->min('urgency'),
+            ];
+        })->sortBy('urgency')->values();
+    }
+
+    /**
+     * @param  Collection<int, array<string, mixed>>  $items
+     * @return Collection<int, array<string, mixed>>
+     */
+    public function grouped(Collection $items, string $groupBy = 'teacher'): Collection
+    {
+        return $items->groupBy('type')->map(function (Collection $rows, string $type) use ($groupBy) {
+            $buckets = $groupBy === 'none'
+                ? collect([[
+                    'label' => null,
+                    'items' => $rows->values(),
+                ]])
+                : $rows->groupBy(function (array $item) use ($groupBy) {
+                    if ($groupBy === 'class') {
+                        return trim((string) ($item['class'] ?? '')) !== '' ? $item['class'] : 'No class';
+                    }
+
+                    return trim((string) ($item['teacher'] ?? '')) !== '' ? $item['teacher'] : 'No teacher';
+                })->map(fn (Collection $sub, string $label) => [
+                    'label' => $label,
+                    'items' => $sub->values(),
+                ])->sortBy('label')->values();
+
+            return [
+                'type' => $type,
+                'label' => self::TYPE_LABELS[$type] ?? $type,
+                'count' => $rows->count(),
+                'overdue' => $rows->where('badge', 'Overdue')->count(),
+                'urgency' => (int) $rows->min('urgency'),
+                'groups' => $buckets,
+            ];
+        })->sortBy('urgency')->values();
+    }
+
+    /**
      * @param  Collection<int, LessonPlan>|mixed  $plans
      * @return Collection<int, array<string, mixed>>
      */
@@ -94,6 +162,11 @@ class HodReviewFeed
                 route('dashboard', request()->query()).'#review-plan-'.$plan->id,
                 'Review plan',
                 $overdue ? 'Overdue' : 'Review',
+                [
+                    'teacher' => $plan->teacher?->name,
+                    'class' => $plan->schoolClass?->name,
+                    'subject' => $plan->subject?->name,
+                ],
             );
         })->values();
     }
@@ -117,6 +190,11 @@ class HodReviewFeed
                 route('dashboard', request()->query()).'#catch-up-needed-'.$topic->id,
                 'Open catch-up',
                 'Catch-up',
+                [
+                    'teacher' => null,
+                    'class' => $scheme?->schoolClass?->name,
+                    'subject' => $scheme?->subject?->name,
+                ],
             );
         })->values();
     }
@@ -138,6 +216,11 @@ class HodReviewFeed
                 route('dashboard', request()->query()).'#review-coverage-'.$log->id,
                 'Review coverage',
                 'Review',
+                [
+                    'teacher' => $log->teacher?->name,
+                    'class' => $log->schoolClass?->name,
+                    'subject' => $log->subject?->name,
+                ],
             );
         })->values();
     }
@@ -161,6 +244,11 @@ class HodReviewFeed
                     route('dashboard', request()->query()).'#review-homework-'.$log->id,
                     'Review homework',
                     'Review',
+                    [
+                        'teacher' => $log->teacher?->name,
+                        'class' => $log->schoolClass?->name,
+                        'subject' => $log->subject?->name,
+                    ],
                 );
             })
             ->values();
@@ -189,6 +277,11 @@ class HodReviewFeed
                     route('dashboard', request()->query()).'#review-register-'.$log->id,
                     'Review register',
                     'Review',
+                    [
+                        'teacher' => $log->recorder?->name,
+                        'class' => $log->schoolClass?->name,
+                        'subject' => null,
+                    ],
                 );
             })
             ->values();
@@ -217,6 +310,11 @@ class HodReviewFeed
                     route('dashboard', request()->query()).'#review-exam-'.$anchor,
                     'Review marksheet',
                     'Review',
+                    [
+                        'teacher' => $assignment->teacher?->name,
+                        'class' => $assignment->schoolClass?->name,
+                        'subject' => $assignment->subject?->name,
+                    ],
                 );
             })
             ->values();
@@ -258,6 +356,11 @@ class HodReviewFeed
                     ])),
                     'View marksheet',
                     'Not logged',
+                    [
+                        'teacher' => $assignment->teacher?->name,
+                        'class' => $assignment->schoolClass?->name,
+                        'subject' => $assignment->subject?->name,
+                    ],
                 );
             })
             ->values();
@@ -281,6 +384,11 @@ class HodReviewFeed
                     route('at-risk.plans.create', $record),
                     'Add intervention plan',
                     'No plan',
+                    [
+                        'teacher' => null,
+                        'class' => $record->schoolClass?->name,
+                        'subject' => null,
+                    ],
                 );
             })
             ->values();
@@ -307,6 +415,11 @@ class HodReviewFeed
                     route('at-risk.index'),
                     'Open caseload',
                     'Not flagged',
+                    [
+                        'teacher' => null,
+                        'class' => $learner->schoolClass?->name,
+                        'subject' => null,
+                    ],
                 );
             })
             ->values();
@@ -361,6 +474,11 @@ class HodReviewFeed
                     ])),
                     'View registers',
                     'Not logged',
+                    [
+                        'teacher' => $assignment->teacher?->name,
+                        'class' => $assignment->schoolClass?->name,
+                        'subject' => null,
+                    ],
                 );
             })
             ->filter()
@@ -400,9 +518,14 @@ class HodReviewFeed
                     'class_id' => $assignment->school_class_id,
                     'subject_id' => $assignment->subject_id,
                 ])),
-                'View homework',
-                'Not logged',
-            );
+                    'View homework',
+                    'Not logged',
+                    [
+                        'teacher' => $assignment->teacher?->name,
+                        'class' => $assignment->schoolClass?->name,
+                        'subject' => $assignment->subject?->name,
+                    ],
+                );
         })->filter()->values();
     }
 
@@ -418,10 +541,12 @@ class HodReviewFeed
         ?string $href,
         ?string $cta,
         string $badge,
+        array $scope = [],
     ): array {
         return [
             'key' => $key,
             'type' => $type,
+            'type_label' => self::TYPE_LABELS[$type] ?? $type,
             'urgency' => $urgency,
             'title' => $title,
             'meta' => $meta,
@@ -429,6 +554,9 @@ class HodReviewFeed
             'cta' => $cta,
             'badge' => $badge,
             'blocked' => false,
+            'teacher' => $scope['teacher'] ?? null,
+            'class' => $scope['class'] ?? null,
+            'subject' => $scope['subject'] ?? null,
         ];
     }
 }

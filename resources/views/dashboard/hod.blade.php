@@ -101,6 +101,10 @@
                 </select>
             </div>
 
+            @if (($f['inboxType'] ?? '') !== '')
+                <input type="hidden" name="inbox_type" value="{{ $f['inboxType'] }}">
+            @endif
+
             <div class="flex gap-2 pt-5">
                 <x-primary-button type="submit">Apply</x-primary-button>
                 @if ($hodActiveFilters)
@@ -112,12 +116,24 @@
             </div>
         </form>
 
+        @php
+            $reviewTotal = (int) ($review_feed_total ?? 0);
+            $reviewFiltered = (int) ($review_feed_filtered_total ?? $reviewTotal);
+            $reviewGroup = $f['filterGroup'] ?? 'teacher';
+            $reviewGroupLabel = $reviewGroup === 'class' ? 'class' : ($reviewGroup === 'none' ? 'activity type' : 'teacher');
+        @endphp
         <x-portal.work-inbox
             title="Reviews due"
-            :subtitle="($review_feed_capped ?? false)
-                ? 'Showing '.($review_feed?->count() ?? 0).' of '.$review_feed_total.' items. Filter or open Lesson plans for the rest. Gaps still appear when capture is missing.'
-                : 'Approve plans and verify coverage, homework, registers, and complete marksheets here. Behind-schedule topics needing catch-up also appear here.'"
+            :subtitle="$reviewTotal === 0
+                ? 'Approve plans and verify coverage, homework, registers, and complete marksheets here. Behind-schedule topics needing catch-up also appear here.'
+                : $reviewTotal.' item'.($reviewTotal === 1 ? '' : 's').' in this session and term, grouped by activity then '.$reviewGroupLabel.'. Use the type chips and filters to narrow the queue.'"
             :items="$review_feed ?? collect()"
+            :grouped="$review_feed_groups ?? null"
+            :types="$review_feed_types ?? null"
+            :paginator="$review_feed_paginator ?? null"
+            :active-type="$f['inboxType'] ?? ''"
+            :total="$reviewTotal"
+            :filtered-total="$reviewFiltered"
             empty="No reviews due. Capture gaps and at-risk follow-up appear here when evidence or a plan is still missing."
         />
 

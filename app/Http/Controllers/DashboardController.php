@@ -14,6 +14,7 @@ use App\Services\HodReviewFeed;
 use App\Services\LeadershipReviewFeed;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
 
@@ -108,6 +109,10 @@ class DashboardController extends Controller
             $filterSubjectId = $request->integer('subject_id');
             $filterWeek      = $request->integer('week');
             $filterGroup     = (string) $request->query('group', 'teacher');
+            $inboxType       = (string) $request->query('inbox_type', '');
+            if ($inboxType !== '' && ! array_key_exists($inboxType, HodReviewFeed::TYPE_LABELS)) {
+                $inboxType = '';
+            }
 
             $allTerms = Term::where('academic_session_id', $session->id)
                 ->orderBy('start_date')->get();
@@ -133,16 +138,36 @@ class DashboardController extends Controller
                 ->filter(fn ($row) => ($row['review_status'] ?? null) === 'submitted')
                 ->values();
             $reviewAll = $reviews->compose($data, null);
-            $data['review_feed'] = $reviewAll->take(HodReviewFeed::INBOX_LIMIT)->values();
+            $filteredFeed = $inboxType === ''
+                ? $reviewAll
+                : $reviewAll->where('type', $inboxType)->values();
+            $inboxPage = max(1, $request->integer('inbox_page'));
+            $pageItems = $filteredFeed->forPage($inboxPage, HodReviewFeed::INBOX_LIMIT)->values();
+
+            $data['review_feed'] = $pageItems;
             $data['review_feed_total'] = $reviewAll->count();
-            $data['review_feed_capped'] = $reviewAll->count() > HodReviewFeed::INBOX_LIMIT;
+            $data['review_feed_filtered_total'] = $filteredFeed->count();
+            $data['review_feed_types'] = $reviews->typeCounts($reviewAll);
+            $data['review_feed_groups'] = $reviews->grouped($pageItems, $filterGroup);
+            $data['review_feed_paginator'] = new LengthAwarePaginator(
+                $pageItems,
+                $filteredFeed->count(),
+                HodReviewFeed::INBOX_LIMIT,
+                $inboxPage,
+                [
+                    'path' => $request->url(),
+                    'pageName' => 'inbox_page',
+                    'query' => $request->except('inbox_page'),
+                ]
+            );
 
             $hodFilters = compact(
-                'sessionId', 'termId', 'filterTeacherId', 'filterClassId', 'filterSubjectId', 'filterWeek', 'filterGroup'
+                'sessionId', 'termId', 'filterTeacherId', 'filterClassId', 'filterSubjectId', 'filterWeek', 'filterGroup', 'inboxType'
             );
             $hodActiveFilters = (bool) array_filter([
                 $filterTeacherId, $filterClassId, $filterSubjectId, $filterWeek,
                 $filterGroup !== 'teacher',
+                $inboxType,
                 $termId && $termId !== (int) ($currentTerm?->id ?? 0),
                 $sessionId && $sessionId !== ($allSessions->first()?->id ?? 0),
             ]);
