@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Services\LessonPlanCalculationService;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -76,6 +78,11 @@ class SchemeOfWork extends Model
         return $this->belongsTo(User::class, 'board_approved_by');
     }
 
+    public function approvedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
     public function rejectedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'rejected_by');
@@ -115,6 +122,11 @@ class SchemeOfWork extends Model
         return $this->isDraft() && $this->submitted_at === null;
     }
 
+    public function isReturned(): bool
+    {
+        return $this->isEditableDraft() && filled($this->rejection_reason);
+    }
+
     public function isApproved(): bool
     {
         return $this->status === 'approved';
@@ -145,6 +157,11 @@ class SchemeOfWork extends Model
         return $this->isEditableDraft();
     }
 
+    public function canHodApprove(): bool
+    {
+        return $this->isSubmitted();
+    }
+
     public function canHosApprove(): bool
     {
         return $this->isSubmitted() && ! $this->hasHosApproval();
@@ -167,7 +184,7 @@ class SchemeOfWork extends Model
 
     public function canBePermanentlyDeleted(): bool
     {
-        return $this->isDraft() && ! $this->isActive() && ! $this->isArchived();
+        return $this->isEditableDraft();
     }
 
     public function processLabel(): string
@@ -177,8 +194,36 @@ class SchemeOfWork extends Model
             $this->isApproved() => 'Approved',
             $this->isArchived() => 'Archived',
             $this->isSubmitted() => 'Submitted',
+            $this->isReturned() => 'Returned',
             default => 'Draft',
         };
+    }
+
+    public function submissionDueAt(): ?Carbon
+    {
+        $this->loadMissing(['term.academicSession.school', 'academicSession.school']);
+
+        $term = $this->term;
+        if (! $term) {
+            return null;
+        }
+
+        return app(LessonPlanCalculationService::class)->dueAtForWeek(
+            $term,
+            1,
+            $this->academicSession?->school ?? $term->academicSession?->school,
+        );
+    }
+
+    public function submittedOnTime(): ?bool
+    {
+        if ($this->submitted_at === null) {
+            return null;
+        }
+
+        $due = $this->submissionDueAt();
+
+        return $due ? $this->submitted_at->lt($due) : null;
     }
 
     public function coverageRate(): float

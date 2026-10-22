@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AcademicSession;
 use App\Models\LessonPlan;
+use App\Models\SchemeOfWork;
 use App\Models\SchoolClass;
 use App\Models\Subject;
 use App\Models\Term;
@@ -30,6 +31,7 @@ class LessonPlanController extends Controller
         abort_unless($user->isTeacher() || $user->isHoD() || $user->isLeadership() || $user->isAdmin(), 403);
 
         $isStaff = $user->isHoD() || $user->isHoS() || $user->isAdmin();
+        $canReviewPlans = $user->isHoD();
 
         // All sessions for this school
         $allSessions = AcademicSession::where('school_id', $user->school_id)
@@ -63,7 +65,7 @@ class LessonPlanController extends Controller
                 }
             })
             ->when(! $isStaff,       fn ($q) => $q->where('teacher_id', $user->id))
-            ->when($user->isHoD() && ! $user->isHoS() && ! $user->isAdmin(), fn ($q) => $scope->constrainBySubject($q, $user))
+            ->when($user->isHoD() && ! $user->isHoS() && ! $user->isAdmin(), fn ($q) => $scope->constrainByClass($q, $user))
             ->when($filterClassId,   fn ($q) => $q->where('school_class_id', $filterClassId))
             ->when($filterSubjectId, fn ($q) => $q->where('subject_id', $filterSubjectId))
             ->when($filterTeacherId, fn ($q) => $q->where('teacher_id', $filterTeacherId))
@@ -112,6 +114,7 @@ class LessonPlanController extends Controller
             'planSummary' => $planSummary,
             'session' => $session,
             'isStaff' => $isStaff,
+            'canReviewPlans' => $canReviewPlans,
             'allSessions' => $allSessions,
             'allTerms' => $allTerms,
             'allClasses' => $allClasses,
@@ -131,12 +134,28 @@ class LessonPlanController extends Controller
         abort_unless($session, 403, 'No active academic session configured.');
 
         $schemes = $curriculum->schemesForTeacherPlanning($user, $session->id);
+        $focusScheme = null;
         $selectedTopic = null;
         $plan = new LessonPlan(['status' => 'draft']);
+
+        if ($request->filled('scheme')) {
+            $focusScheme = SchemeOfWork::with(['subject', 'schoolClass.schoolSection', 'term', 'academicSession', 'topics'])
+                ->find($request->integer('scheme'));
+            abort_unless(
+                $focusScheme
+                && $focusScheme->isActive()
+                && $curriculum->teacherCanPlanFromScheme($user, $focusScheme, $session->id),
+                403,
+                'Lesson plans can only be prepared from an Active scheme of work assigned to you.',
+            );
+            $schemes = $schemes->where('id', $focusScheme->id)->values();
+        }
 
         if ($request->filled('topic')) {
             $selectedTopic = Topic::with(['schemeOfWork.term', 'latestLessonPlan'])->find($request->integer('topic'));
             abort_unless($selectedTopic && $curriculum->teacherOwnsTopic($user, $selectedTopic, $session->id), 403);
+            abort_unless($selectedTopic->schemeOfWork?->isActive(), 403, 'Lesson plans can only be prepared from an Active scheme of work.');
+            abort_unless(! $focusScheme || (int) $selectedTopic->scheme_of_work_id === (int) $focusScheme->id, 403);
 
             if ($selectedTopic->latestLessonPlan?->isEditable()) {
                 $plan = $selectedTopic->latestLessonPlan;
@@ -145,6 +164,7 @@ class LessonPlanController extends Controller
 
         return view('lesson-plans.form', [
             'schemes' => $schemes,
+            'focusScheme' => $focusScheme,
             'selectedTopic' => $selectedTopic,
             'plan' => $plan,
             'session' => $session,
@@ -157,6 +177,28 @@ class LessonPlanController extends Controller
         return $this->persist($request, $curriculum, $calculator, new LessonPlan);
     }
 
+    public function show(LessonPlan $lessonPlan, HodScope $scope): View
+    {
+        $user = auth()->user();
+        $this->authorizeView($user, $lessonPlan, $scope);
+
+        $lessonPlan->load([
+            'topic.schemeOfWork.term',
+            'topic.schemeOfWork.academicSession',
+            'topic.schemeOfWork.schoolClass.schoolSection',
+            'teacher',
+            'schoolClass.schoolSection',
+            'subject',
+            'approver',
+        ]);
+
+        return view('lesson-plans.show', [
+            'plan' => $lessonPlan,
+            'canReviewPlan' => $user->isHoD() && $lessonPlan->status === 'submitted' && $scope->canReviewLessonPlan($user, $lessonPlan),
+            'canRevise' => $user->isTeacher() && (int) $lessonPlan->teacher_id === (int) $user->id && $lessonPlan->isEditable(),
+        ]);
+    }
+
     public function edit(LessonPlan $lessonPlan, CurriculumDashboardService $curriculum): View
     {
         $user = auth()->user();
@@ -165,9 +207,16 @@ class LessonPlanController extends Controller
 
         $session = AcademicSession::currentForSchool($user->school_id);
         $schemes = $curriculum->schemesForTeacherPlanning($user, $session->id);
+        $lessonPlan->loadMissing([
+            'topic.schemeOfWork.subject',
+            'topic.schemeOfWork.schoolClass.schoolSection',
+            'topic.schemeOfWork.term',
+            'topic.schemeOfWork.academicSession',
+        ]);
 
         return view('lesson-plans.form', [
             'schemes' => $schemes,
+            'focusScheme' => $lessonPlan->topic?->schemeOfWork,
             'selectedTopic' => $lessonPlan->topic,
             'plan' => $lessonPlan,
             'session' => $session,
@@ -186,7 +235,7 @@ class LessonPlanController extends Controller
 
     public function approve(Request $request, LessonPlan $lessonPlan, LessonPlanCalculationService $calculator, HodScope $scope, LessonPlanReview $review): RedirectResponse
     {
-        abort_unless(auth()->user()->isHoD() || auth()->user()->isHoS(), 403);
+        abort_unless(auth()->user()->isHoD(), 403);
         $scope->assertCanReviewLessonPlan(auth()->user(), $lessonPlan);
         abort_unless($lessonPlan->status === 'submitted', 422, 'Only submitted plans can be approved.');
 
@@ -212,7 +261,7 @@ class LessonPlanController extends Controller
 
     public function reject(Request $request, LessonPlan $lessonPlan, LessonPlanCalculationService $calculator, HodScope $scope, LessonPlanReview $review): RedirectResponse
     {
-        abort_unless(auth()->user()->isHoD() || auth()->user()->isHoS(), 403);
+        abort_unless(auth()->user()->isHoD(), 403);
         $scope->assertCanReviewLessonPlan(auth()->user(), $lessonPlan);
         abort_unless($lessonPlan->status === 'submitted', 422, 'Only submitted plans can be rejected.');
 
@@ -309,7 +358,28 @@ class LessonPlanController extends Controller
             ? 'on time'
             : 'after the planning-policy deadline (late)';
 
-        return redirect()->route('dashboard')->with('success', "Lesson plan submitted {$timing}. This is a plan only — it does not count as delivery or verified coverage.");
+        return redirect()->route('lesson-plans.show', $plan)->with('success', "Lesson plan submitted {$timing}. This is a plan only — it does not count as delivery or verified coverage.");
+    }
+
+    protected function authorizeView(User $user, LessonPlan $plan, HodScope $scope): void
+    {
+        $plan->loadMissing(['schoolClass', 'topic.schemeOfWork']);
+
+        abort_unless((int) $plan->schoolClass?->school_id === (int) $user->school_id, 404);
+
+        if ($user->isTeacher() && (int) $plan->teacher_id === (int) $user->id) {
+            return;
+        }
+
+        if ($user->isHoD() && $scope->canReviewLessonPlan($user, $plan)) {
+            return;
+        }
+
+        if ($user->isHoS() || $user->isAssistantHead() || $user->isAdmin()) {
+            return;
+        }
+
+        abort(403);
     }
 
     protected function recalculate(LessonPlan $plan, LessonPlanCalculationService $calculator): void

@@ -6,7 +6,7 @@
     <x-portal.page-intro
         eyebrow="Configuration"
         :title="$isEdit ? 'Edit academic session' : 'New academic session'"
-        meta="Create a school year and, as System Admin, activate it immediately. No Head of School or Board approval is required."
+        meta="Create the school year and First Term together. Activate it to open the year, or leave it upcoming until you are ready."
     />
 
     <x-portal.panel :title="$isEdit ? $session->name : 'Session details'">
@@ -36,18 +36,37 @@
             </div>
 
             @unless ($isEdit)
-                <div class="rounded-xl border border-slate-200 bg-slate-50/80 p-4 space-y-3" x-data="{ activate: true }">
+                <div class="rounded-xl border border-slate-200 bg-slate-50/80 p-4 space-y-4">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-800">First Term</p>
+                        <p class="mt-1 text-xs text-slate-500">Required before the session can open. Second Term and Third Term are added later from Academic Period.</p>
+                    </div>
+                    <div>
+                        <x-input-label for="first_term_label" value="Term" />
+                        <select id="first_term_label" disabled class="mt-1 block w-full rounded-md border-gray-300 bg-slate-100 text-slate-700 shadow-sm">
+                            <option selected>First Term</option>
+                        </select>
+                    </div>
+                    <div class="grid gap-5 sm:grid-cols-2">
+                        <div>
+                            <x-input-label for="first_term_start_date" value="First Term start date" />
+                            <x-text-input id="first_term_start_date" name="first_term_start_date" type="date" class="block mt-1 w-full" :value="old('first_term_start_date')" required />
+                            <x-input-error :messages="$errors->get('first_term_start_date')" class="mt-2" />
+                            <x-input-error :messages="$errors->get('start_date')" class="mt-2" />
+                        </div>
+                        <div>
+                            <x-input-label for="first_term_end_date" value="First Term end date" />
+                            <x-text-input id="first_term_end_date" name="first_term_end_date" type="date" class="block mt-1 w-full" :value="old('first_term_end_date')" required />
+                            <x-input-error :messages="$errors->get('first_term_end_date')" class="mt-2" />
+                        </div>
+                    </div>
                     <label class="inline-flex items-start gap-3">
-                        <input type="checkbox" name="activate" value="1" x-model="activate" class="mt-1 rounded border-gray-300 text-[#0f2d4a] focus:ring-[#0f2d4a]" checked>
+                        <input type="checkbox" name="activate" value="1" class="mt-1 rounded border-gray-300 text-[#0f2d4a] focus:ring-[#0f2d4a]" @checked(old('activate', true))>
                         <span>
                             <span class="block text-sm font-semibold text-slate-800">Activate this session now</span>
-                            <span class="mt-1 block text-xs text-slate-500">Makes it the current school year. A First Term is created from these dates so the period can open. You can add Second Term and Third Term afterwards. Admin does not need approval.</span>
+                            <span class="mt-1 block text-xs text-slate-500">Makes it the current school year. Admin does not need approval. Leave unchecked to keep the year upcoming until you activate it from Academic Sessions.</span>
                         </span>
                     </label>
-                    <div x-cloak x-show="activate">
-                        <x-input-label for="first_term_name" value="First term name" />
-                        <x-text-input id="first_term_name" name="first_term_name" type="text" class="block mt-1 w-full" :value="old('first_term_name', 'First Term')" />
-                    </div>
                 </div>
             @endunless
 

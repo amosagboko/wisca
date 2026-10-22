@@ -9,11 +9,15 @@
                 @if ($canEdit)
                     <a href="{{ route('schemes.edit', $scheme) }}" class="inline-flex items-center rounded-lg bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-[#0f2d4a] transition hover:bg-slate-100">Edit draft</a>
                 @endif
+                @if ($canPlanLessons)
+                    <a href="{{ route('lesson-plans.create', ['scheme' => $scheme->id]) }}" class="inline-flex items-center rounded-lg bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-[#0f2d4a] transition hover:bg-slate-100">Plan Lessons from Approved SoW</a>
+                @endif
                 @if ($canClone)
                     <form method="POST" action="{{ route('schemes.clone', $scheme) }}">
                         @csrf
                         <button type="submit" class="inline-flex items-center rounded-lg border border-white/40 px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-white transition hover:bg-white/10">Clone as draft</button>
                     </form>
+                    <a href="{{ route('schemes.clone-session', $scheme) }}" class="inline-flex items-center rounded-lg border border-white/40 px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-white transition hover:bg-white/10">Clone to session</a>
                 @endif
             </div>
         </x-slot:actions>
@@ -32,49 +36,60 @@
         </div>
     @endif
 
-    <div class="grid gap-6 lg:grid-cols-3">
-        <div class="lg:col-span-2 space-y-6">
-            <x-portal.panel title="Weekly topics">
-                @if ($scheme->topics->isEmpty())
-                    <p class="text-sm text-slate-500">No topics recorded on this version.</p>
-                @else
-                    <div class="overflow-x-auto -mx-5 sm:-mx-6">
-                        <table class="min-w-full text-sm">
-                            <thead class="bg-slate-50 text-left">
+    <div class="space-y-6">
+        <x-portal.panel title="Weekly topics">
+            @if ($scheme->topics->isEmpty())
+                <p class="text-sm text-slate-500">No topics recorded on this version.</p>
+            @else
+                <div class="overflow-x-auto -mx-5 sm:-mx-6">
+                    <table class="w-full min-w-[28rem] text-sm">
+                        <colgroup>
+                            <col class="w-20">
+                            <col class="w-[32%]">
+                            <col>
+                        </colgroup>
+                        <thead class="bg-slate-50 text-left">
+                            <tr>
+                                <th class="px-5 sm:px-6 py-3 font-semibold text-slate-600 whitespace-nowrap">Week</th>
+                                <th class="px-5 py-3 font-semibold text-slate-600">Topic</th>
+                                <th class="px-5 sm:px-6 py-3 font-semibold text-slate-600">Learning objectives</th>
+                                <th class="px-5 py-3 font-semibold text-slate-600 text-right">Plan</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @foreach ($scheme->topics as $topic)
                                 <tr>
-                                    <th class="px-5 sm:px-6 py-3 font-semibold text-slate-600">Week</th>
-                                    <th class="px-5 py-3 font-semibold text-slate-600">Topic</th>
-                                    <th class="px-5 py-3 font-semibold text-slate-600">Learning objectives</th>
+                                    <td class="px-5 sm:px-6 py-3 text-slate-600 whitespace-nowrap align-top">{{ $topic->week_number }}</td>
+                                    <td class="px-5 py-3 font-medium text-slate-800 align-top">{{ $topic->title }}</td>
+                                    <td class="px-5 sm:px-6 py-3 text-slate-600 align-top">
+                                        @if ($topic->learning_objectives)
+                                            <ul class="list-disc pl-4 space-y-1">
+                                                @foreach ($topic->learning_objectives as $objective)
+                                                    <li>{{ $objective }}</li>
+                                                @endforeach
+                                            </ul>
+                                        @else
+                                            <span class="text-slate-400">—</span>
+                                        @endif
+                                    </td>
+                                    <td class="px-5 py-3 text-right align-top whitespace-nowrap">
+                                        @if ($topic->latestLessonPlan && ((int) $topic->latestLessonPlan->teacher_id === (int) auth()->id() || auth()->user()?->isHoD()))
+                                            <a href="{{ route('lesson-plans.show', $topic->latestLessonPlan) }}" class="text-xs font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">View plan</a>
+                                        @else
+                                            <span class="text-xs text-slate-400">—</span>
+                                        @endif
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100">
-                                @foreach ($scheme->topics as $topic)
-                                    <tr>
-                                        <td class="px-5 sm:px-6 py-3 text-slate-600">{{ $topic->week_number }}</td>
-                                        <td class="px-5 py-3 font-medium text-slate-800">{{ $topic->title }}</td>
-                                        <td class="px-5 py-3 text-slate-600">
-                                            @if ($topic->learning_objectives)
-                                                <ul class="list-disc pl-4 space-y-1">
-                                                    @foreach ($topic->learning_objectives as $objective)
-                                                        <li>{{ $objective }}</li>
-                                                    @endforeach
-                                                </ul>
-                                            @else
-                                                <span class="text-slate-400">—</span>
-                                            @endif
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-                @endif
-            </x-portal.panel>
-        </div>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @endif
+        </x-portal.panel>
 
-        <div class="space-y-6">
+        <div class="grid max-w-3xl gap-6 md:grid-cols-2">
             <x-portal.panel title="Evidence">
-                <dl class="space-y-3 text-sm">
+                <dl class="space-y-2.5 text-sm">
                     <div>
                         <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Prepared by</dt>
                         <dd class="mt-0.5 text-slate-700">{{ $scheme->uploadedBy?->name ?? '—' }}</dd>
@@ -89,25 +104,43 @@
                         </dd>
                     </div>
                     <div>
-                        <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">HoS approval</dt>
+                        <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Submission timing</dt>
                         <dd class="mt-0.5 text-slate-700">
-                            @if ($scheme->hasHosApproval())
-                                {{ $scheme->hosApprover?->name }} · {{ $scheme->hos_approved_at?->format('d M Y H:i') }}
+                            @if ($scheme->submittedOnTime() === true)
+                                <span class="font-medium text-emerald-700">On time</span>
+                            @elseif ($scheme->submittedOnTime() === false)
+                                <span class="font-medium text-amber-700">Late</span>
+                            @else
+                                Not submitted
+                            @endif
+                            @if ($scheme->submissionDueAt())
+                                <span class="block text-slate-500">Due {{ $scheme->submissionDueAt()->format('d M Y') }} (week 1 planning day)</span>
+                            @endif
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Section HOD approval</dt>
+                        <dd class="mt-0.5 text-slate-700">
+                            @if ($scheme->approved_by)
+                                {{ $scheme->approvedBy?->name }} · {{ $scheme->approved_at?->format('d M Y H:i') }}
                             @else
                                 Waiting
                             @endif
                         </dd>
                     </div>
-                    <div>
-                        <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Board approval</dt>
-                        <dd class="mt-0.5 text-slate-700">
-                            @if ($scheme->hasBoardApproval())
-                                {{ $scheme->boardApprover?->name }} · {{ $scheme->board_approved_at?->format('d M Y H:i') }}
-                            @else
-                                {{ $scheme->hasHosApproval() ? 'Waiting' : 'Blocked until HoS approves' }}
-                            @endif
-                        </dd>
-                    </div>
+                    @if ($scheme->hasHosApproval() || $scheme->hasBoardApproval())
+                        <div>
+                            <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Historical HoS / Board</dt>
+                            <dd class="mt-0.5 text-slate-700">
+                                @if ($scheme->hasHosApproval())
+                                    HoS: {{ $scheme->hosApprover?->name }} · {{ $scheme->hos_approved_at?->format('d M Y H:i') }}
+                                @endif
+                                @if ($scheme->hasBoardApproval())
+                                    <span class="block">Board: {{ $scheme->boardApprover?->name }} · {{ $scheme->board_approved_at?->format('d M Y H:i') }}</span>
+                                @endif
+                            </dd>
+                        </div>
+                    @endif
                     @if ($scheme->replaces)
                         <div>
                             <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Replaces</dt>
@@ -129,34 +162,20 @@
                 </dl>
             </x-portal.panel>
 
-            @if ($canSubmit || $canHosApprove || $canBoardApprove || $canActivate || $canReject || $canDelete)
+            @if ($canSubmit || $canHodApprove || $canReject || $canDelete)
                 <x-portal.panel title="Review actions">
                     <div class="space-y-4">
                         @if ($canSubmit)
                             <form method="POST" action="{{ route('schemes.submit', $scheme) }}">
                                 @csrf
-                                <x-primary-button>Submit for HoS review</x-primary-button>
+                                <x-primary-button>Submit for HOD review</x-primary-button>
                             </form>
                         @endif
 
-                        @if ($canHosApprove)
+                        @if ($canHodApprove)
                             <form method="POST" action="{{ route('schemes.approve', $scheme) }}">
                                 @csrf
-                                <x-primary-button>Record HoS approval</x-primary-button>
-                            </form>
-                        @endif
-
-                        @if ($canBoardApprove)
-                            <form method="POST" action="{{ route('schemes.approve', $scheme) }}">
-                                @csrf
-                                <x-primary-button>Record Board approval</x-primary-button>
-                            </form>
-                        @endif
-
-                        @if ($canActivate)
-                            <form method="POST" action="{{ route('schemes.activate', $scheme) }}">
-                                @csrf
-                                <x-primary-button>Activate this version</x-primary-button>
+                                <x-primary-button>Approve and activate</x-primary-button>
                             </form>
                         @endif
 

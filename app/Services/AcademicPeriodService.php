@@ -12,6 +12,15 @@ use Illuminate\Validation\ValidationException;
 
 class AcademicPeriodService
 {
+    /**
+     * @var array<int, string>
+     */
+    public const TERM_LABELS = [
+        1 => 'First Term',
+        2 => 'Second Term',
+        3 => 'Third Term',
+    ];
+
     public function currentSession(int $schoolId): ?AcademicSession
     {
         return AcademicSession::currentForSchool($schoolId);
@@ -78,6 +87,98 @@ class AcademicPeriodService
             ->where('academic_session_id', $session->id)
             ->orderByDesc('sequence')
             ->first();
+    }
+
+    /**
+     * @return array{sequence: int, name: string}|null
+     */
+    public function nextAvailableTerm(AcademicSession $session): ?array
+    {
+        foreach (self::TERM_LABELS as $sequence => $name) {
+            $exists = Term::query()
+                ->where('academic_session_id', $session->id)
+                ->where('sequence', $sequence)
+                ->exists();
+
+            if (! $exists) {
+                return ['sequence' => $sequence, 'name' => $name];
+            }
+        }
+
+        return null;
+    }
+
+    public function termLabel(int $sequence): string
+    {
+        return self::TERM_LABELS[$sequence] ?? 'Term '.$sequence;
+    }
+
+    public function createUpcomingTerm(AcademicSession $session, int $sequence, string $startDate, string $endDate): Term
+    {
+        $this->assertCanonicalTerm($session, $sequence, $startDate, $endDate);
+
+        return Term::create([
+            'academic_session_id' => $session->id,
+            'name' => $this->termLabel($sequence),
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'sequence' => $sequence,
+            'status' => 'upcoming',
+            'is_current' => false,
+        ]);
+    }
+
+    public function assertCanonicalTerm(AcademicSession $session, int $sequence, string $startDate, string $endDate, ?int $exceptTermId = null): void
+    {
+        if (! isset(self::TERM_LABELS[$sequence])) {
+            throw ValidationException::withMessages([
+                'sequence' => 'Choose First Term, Second Term, or Third Term.',
+            ]);
+        }
+
+        if ($exceptTermId === null) {
+            $next = $this->nextAvailableTerm($session);
+            if (! $next || $next['sequence'] !== $sequence) {
+                throw ValidationException::withMessages([
+                    'sequence' => $next
+                        ? 'Configure '.$next['name'].' next. Terms must be added in order.'
+                        : 'All three terms are already configured for this session.',
+                ]);
+            }
+        }
+
+        $this->assertTermDates($session, $startDate, $endDate, $exceptTermId);
+    }
+
+    public function assertTermDates(AcademicSession $session, string $startDate, string $endDate, ?int $exceptTermId = null): void
+    {
+        if ($endDate < $startDate) {
+            throw ValidationException::withMessages([
+                'end_date' => 'The term end date must be on or after the start date.',
+            ]);
+        }
+
+        $sessionStart = optional($session->start_date)->toDateString() ?? (string) $session->start_date;
+        $sessionEnd = optional($session->end_date)->toDateString() ?? (string) $session->end_date;
+
+        if ($startDate < $sessionStart || $endDate > $sessionEnd) {
+            throw ValidationException::withMessages([
+                'start_date' => 'Term dates must fall inside the academic session ('.$sessionStart.' to '.$sessionEnd.').',
+            ]);
+        }
+
+        $overlap = Term::query()
+            ->where('academic_session_id', $session->id)
+            ->when($exceptTermId, fn ($query) => $query->where('id', '!=', $exceptTermId))
+            ->whereDate('start_date', '<=', $endDate)
+            ->whereDate('end_date', '>=', $startDate)
+            ->first();
+
+        if ($overlap) {
+            throw ValidationException::withMessages([
+                'start_date' => $overlap->name.' already uses '.$overlap->start_date->toDateString().' to '.$overlap->end_date->toDateString().'. Term dates cannot overlap.',
+            ]);
+        }
     }
 
     /**
@@ -205,7 +306,7 @@ class AcademicPeriodService
     }
 
     /**
-     * System Admin, Head of School, Board, and Assistant Head can open or roll over a session.
+     * System Admin opens or rolls over a session.
      */
     public function activateSession(User $actor, AcademicSession $session, ?Term $startingTerm = null, ?string $notes = null): AcademicPeriodTransition
     {
@@ -334,7 +435,7 @@ class AcademicPeriodService
 
     protected function assertCanActivate(User $actor): void
     {
-        abort_unless($actor->canActivateAcademicPeriod(), 403, 'Only System Admin, Head of School, Board, or Assistant Head can activate or roll over an academic session.');
+        abort_unless($actor->canActivateAcademicPeriod(), 403, 'Only System Admin can activate or roll over an academic session.');
     }
 
     protected function assertSameSchool(User $actor, AcademicSession $session): void

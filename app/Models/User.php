@@ -41,6 +41,11 @@ class User extends Authenticatable
         return $this->belongsTo(Department::class);
     }
 
+    public function ledSchoolSections(): HasMany
+    {
+        return $this->hasMany(SchoolSection::class, 'hod_id');
+    }
+
     public function subjects(): BelongsToMany
     {
         return $this->belongsToMany(Subject::class, 'class_subject_teacher')
@@ -98,9 +103,14 @@ class User extends Authenticatable
         return $this->isAdmin() || $this->isHoS() || $this->isBoard() || $this->isAssistantHead();
     }
 
+    public function canManageTeacherAssignments(): bool
+    {
+        return $this->isAdmin() || $this->isHoS();
+    }
+
     public function canActivateAcademicPeriod(): bool
     {
-        return $this->canManageAcademicPeriod();
+        return $this->isAdmin();
     }
 
     public function isAdminOfficer(): bool

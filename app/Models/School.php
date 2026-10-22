@@ -46,6 +46,11 @@ class School extends Model
         return $this->hasMany(Department::class);
     }
 
+    public function schoolSections(): HasMany
+    {
+        return $this->hasMany(SchoolSection::class);
+    }
+
     public function users(): HasMany
     {
         return $this->hasMany(User::class);

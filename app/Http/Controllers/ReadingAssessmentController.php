@@ -7,6 +7,7 @@ use App\Models\Learner;
 use App\Models\ReadingAssessment;
 use App\Models\SchoolClass;
 use App\Models\Term;
+use App\Services\HodScope;
 use App\Services\ReadingCalculationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -156,9 +157,7 @@ class ReadingAssessmentController extends Controller
         }
 
         if ($user->isHoD()) {
-            return SchoolClass::where('school_id', $user->school_id)
-                ->where('department_id', $user->department_id)
-                ->pluck('id')->all();
+            return app(HodScope::class)->classIds($user) ?? [];
         }
 
         // teacher: only their assigned classes

@@ -23,6 +23,25 @@ class SchemeOfWorkRulesTest extends TestCase
         $this->assertTrue($submitted->isSubmitted());
         $this->assertFalse($submitted->isEditableDraft());
         $this->assertSame('Submitted', $submitted->processLabel());
+
+        $returned = new SchemeOfWork([
+            'status' => 'draft',
+            'submitted_at' => null,
+            'rejection_reason' => 'Add week 3',
+        ]);
+        $this->assertTrue($returned->isReturned());
+        $this->assertSame('Returned', $returned->processLabel());
+    }
+
+    public function test_hod_can_approve_a_submitted_draft(): void
+    {
+        $draft = new SchemeOfWork(['status' => 'draft', 'submitted_at' => null]);
+        $submitted = new SchemeOfWork(['status' => 'draft', 'submitted_at' => now()]);
+        $active = new SchemeOfWork(['status' => 'active']);
+
+        $this->assertFalse($draft->canHodApprove());
+        $this->assertTrue($submitted->canHodApprove());
+        $this->assertFalse($active->canHodApprove());
     }
 
     public function test_board_approve_and_activate_require_prior_slots(): void
@@ -31,6 +50,7 @@ class SchemeOfWorkRulesTest extends TestCase
             'status' => 'draft',
             'submitted_at' => now(),
         ]);
+        $this->assertTrue($submitted->canHodApprove());
         $this->assertTrue($submitted->canHosApprove());
         $this->assertFalse($submitted->canBoardApprove());
         $this->assertFalse($submitted->canActivate());
@@ -75,7 +95,7 @@ class SchemeOfWorkRulesTest extends TestCase
         $archived = new SchemeOfWork(['status' => 'archived']);
 
         $this->assertTrue($draft->canBePermanentlyDeleted());
-        $this->assertTrue($submitted->canBePermanentlyDeleted());
+        $this->assertFalse($submitted->canBePermanentlyDeleted());
         $this->assertFalse($approved->canBePermanentlyDeleted());
         $this->assertFalse($active->canBePermanentlyDeleted());
         $this->assertFalse($archived->canBePermanentlyDeleted());
@@ -86,6 +106,25 @@ class SchemeOfWorkRulesTest extends TestCase
         $source = file_get_contents((new \ReflectionClass(\App\Models\Term::class))->getFileName());
         $this->assertStringContainsString("where('is_current', true)", $source);
         $this->assertStringNotContainsString("orderByDesc('start_date')", $source);
+    }
+
+    public function test_submitted_on_time_uses_week_one_planning_due_day(): void
+    {
+        $onTime = new SchemeOfWork([
+            'submitted_at' => Carbon::parse('2026-10-14 16:00:00'),
+        ]);
+        $onTime->setRelation('term', new Term(['start_date' => '2026-10-11']));
+        $late = new SchemeOfWork([
+            'submitted_at' => Carbon::parse('2026-10-16 09:00:00'),
+        ]);
+        $late->setRelation('term', new Term(['start_date' => '2026-10-11']));
+        $draft = new SchemeOfWork(['submitted_at' => null]);
+        $draft->setRelation('term', new Term(['start_date' => '2026-10-11']));
+
+        $this->assertTrue($onTime->submittedOnTime());
+        $this->assertFalse($late->submittedOnTime());
+        $this->assertNull($draft->submittedOnTime());
+        $this->assertTrue($onTime->submissionDueAt()->isThursday());
     }
 
     public function test_lesson_plan_due_at_is_still_monday_of_instructional_week(): void
@@ -153,6 +192,24 @@ class SchemeOfWorkRulesTest extends TestCase
             $this->fail('Expected validation exception for empty csv.');
         } catch (ValidationException $e) {
             $this->assertArrayHasKey('bulk_template', $e->errors());
+        }
+
+        @unlink($path);
+    }
+
+    public function test_bulk_upload_rejects_duplicate_week_numbers(): void
+    {
+        $service = new SchemeOfWorkBulkUpload;
+        $path = tempnam(sys_get_temp_dir(), 'sow');
+        file_put_contents($path, "week_number,title,learning_objectives\n1,One,Obj\n1,Again,Obj\n");
+        $file = new UploadedFile($path, 'template.csv', 'text/csv', null, true);
+
+        try {
+            $service->parse($file);
+            $this->fail('Expected validation exception for duplicate weeks.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('bulk_template', $e->errors());
+            $this->assertStringContainsString('Week 1', $e->errors()['bulk_template'][0]);
         }
 
         @unlink($path);

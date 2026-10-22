@@ -28,9 +28,13 @@
             </div>
 
             <div>
-                <x-input-label for="name" value="Term name" />
-                <x-text-input id="name" name="name" type="text" class="block mt-1 w-full" :value="old('name', $term->name)" required placeholder="e.g. First Term" />
-                <x-input-error :messages="$errors->get('name')" class="mt-2" />
+                <x-input-label for="sequence" value="Term" />
+                <select id="sequence" name="sequence" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    @foreach (\App\Services\AcademicPeriodService::TERM_LABELS as $sequence => $label)
+                        <option value="{{ $sequence }}" @selected((int) old('sequence', $term->sequence ?: 1) === $sequence)>{{ $label }}</option>
+                    @endforeach
+                </select>
+                <x-input-error :messages="$errors->get('sequence')" class="mt-2" />
             </div>
 
             <div class="grid gap-5 sm:grid-cols-2">
@@ -46,12 +50,7 @@
                 </div>
             </div>
 
-            <div>
-                <x-input-label for="sequence" value="Sequence" />
-                <x-text-input id="sequence" name="sequence" type="number" min="1" class="block mt-1 w-full" :value="old('sequence', $term->sequence)" placeholder="1, 2, 3…" />
-                <p class="mt-1 text-xs text-slate-500">Order within the session. Status is {{ $term->status ?? 'upcoming' }}@if ($term->is_current) (current)@endif. Use Academic Period to transition.</p>
-                <x-input-error :messages="$errors->get('sequence')" class="mt-2" />
-            </div>
+            <p class="text-xs text-slate-500">Terms must be added in order (First, then Second, then Third). Status is {{ $term->status ?? 'upcoming' }}@if ($term->is_current) (current)@endif. Use Academic Period to transition.</p>
 
             <div class="flex flex-wrap gap-3 pt-2">
                 <x-primary-button>{{ $isEdit ? 'Save changes' : 'Create term' }}</x-primary-button>

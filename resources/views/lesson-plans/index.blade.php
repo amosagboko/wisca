@@ -171,7 +171,7 @@
         </div>
     @endif
 
-    <x-portal.panel :title="($isStaff ? 'Department lesson plans' : 'My lesson plans').((method_exists($plans, 'total') ? $plans->total() : $plans->count()) ? ' ('.(method_exists($plans, 'total') ? $plans->total() : $plans->count()).')' : '')">
+    <x-portal.panel :title="($isStaff ? 'School section lesson plans' : 'My lesson plans').((method_exists($plans, 'total') ? $plans->total() : $plans->count()) ? ' ('.(method_exists($plans, 'total') ? $plans->total() : $plans->count()).')' : '')">
         @if ($plans->isEmpty())
             <p class="text-sm text-slate-500">
                 @if ($activeFilters)
@@ -237,30 +237,16 @@
                                     @endif
                                     @include('lesson-plans.partials.review-result', ['plan' => $plan])
                                 </td>
-                                <td class="px-5 py-3 text-right">
+                                <td class="px-5 py-3 text-right whitespace-nowrap space-x-2">
+                                    <a href="{{ route('lesson-plans.show', $plan) }}"
+                                       class="text-xs font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">View</a>
                                     @if ($canSubmit && $plan->isEditable())
                                         <a href="{{ route('lesson-plans.edit', $plan) }}"
                                            class="text-xs font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">Revise</a>
-                                    @elseif ($isStaff && $plan->status === 'submitted')
-                                        <div class="mx-auto w-64 space-y-3 text-left">
-                                            <form method="POST" action="{{ route('lesson-plans.approve', $plan) }}" class="space-y-2">
-                                                @csrf
-                                                @include('lesson-plans.partials.review-form')
-                                                <button type="submit"
-                                                        class="text-xs font-semibold uppercase tracking-wide text-emerald-700 hover:underline">Approve plan</button>
-                                            </form>
-                                            <form method="POST" action="{{ route('lesson-plans.reject', $plan) }}" class="space-y-2">
-                                                @csrf
-                                                @include('lesson-plans.partials.review-form')
-                                                <textarea name="rejection_reason" rows="2" required
-                                                          placeholder="Revision notes"
-                                                          class="w-full rounded-md border-gray-300 text-xs shadow-sm focus:border-indigo-500 focus:ring-indigo-500"></textarea>
-                                                <button type="submit"
-                                                        class="text-xs font-semibold uppercase tracking-wide text-red-700 hover:underline">Return for revision</button>
-                                            </form>
-                                        </div>
-                                    @else
-                                        <span class="text-xs text-slate-400">—</span>
+                                    @endif
+                                    @if (($canReviewPlans ?? false) && $plan->status === 'submitted')
+                                        <a href="{{ route('lesson-plans.show', $plan) }}"
+                                           class="text-xs font-semibold uppercase tracking-wide text-emerald-700 hover:underline">Review</a>
                                     @endif
                                 </td>
                             </tr>

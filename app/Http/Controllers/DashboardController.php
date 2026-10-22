@@ -10,12 +10,22 @@ use App\Services\AtRiskCalculationService;
 use App\Services\AttendanceCalculationService;
 use App\Services\CurriculumDashboardService;
 use App\Services\DashboardService;
-use App\Services\HodReviewFeed;
+use App\Services\HodApprovalQueue;
+use App\Services\HodExceptionFeed;
+use App\Services\HodQuickLog;
+use App\Services\HodTermlyDrawer;
+use App\Services\HodWeeklyPulse;
+use App\Services\LeadershipAccountability;
 use App\Services\LeadershipReviewFeed;
+use App\Services\TeacherActivityDrawer;
+use App\Services\TeacherPerformance;
+use App\Services\TeacherQuickLog;
 use App\Services\TeacherTaskFeed;
+use App\Services\TeacherWeekBoard;
 use App\Services\WorkInbox;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
 
@@ -27,8 +37,18 @@ class DashboardController extends Controller
         CurriculumDashboardService $curriculum,
         AttendanceCalculationService $attendance,
         AtRiskCalculationService $atRisk,
-        HodReviewFeed $reviews,
+        HodApprovalQueue $approvals,
+        HodWeeklyPulse $pulse,
+        HodExceptionFeed $exceptions,
+        HodTermlyDrawer $drawer,
+        HodQuickLog $quickLog,
         LeadershipReviewFeed $leadership,
+        LeadershipAccountability $accountability,
+        TeacherTaskFeed $teacherTasks,
+        TeacherWeekBoard $weekBoard,
+        TeacherPerformance $teacherPerformance,
+        TeacherActivityDrawer $teacherDrawer,
+        TeacherQuickLog $teacherQuickLog,
     ): View|RedirectResponse
     {
         /** @var User $user */
@@ -92,12 +112,9 @@ class DashboardController extends Controller
             $ops = $term
                 ? $leadership->compose($user, $session, $term)
                 : ['items' => collect(), 'counts' => [], 'week_number' => 1, 'review' => null];
-            $ops['inbox'] = WorkInbox::present(
-                collect($ops['items'] ?? []),
-                $request,
-                LeadershipReviewFeed::TYPE_LABELS,
-                'none',
-            );
+            $composed = $term
+                ? $accountability->compose($user, $session, $term)
+                : ['hods' => collect(), 'teachers' => collect(), 'week_number' => 1];
 
             return view('dashboard.executive', [
                 'summary'     => $dashboard->executiveSummary($user->school_id, $session->id),
@@ -106,6 +123,7 @@ class DashboardController extends Controller
                 'allTerms'    => $allTerms,
                 'term'        => $term,
                 'leadership'  => $ops,
+                'accountability' => $this->presentAccountability($composed, $request),
                 'canReviewWeek' => $user->isHoS() || $user->isAssistantHead(),
             ]);
         }
@@ -115,7 +133,6 @@ class DashboardController extends Controller
             $filterClassId   = $request->integer('class_id');
             $filterSubjectId = $request->integer('subject_id');
             $filterWeek      = $request->integer('week');
-            $filterGroup     = (string) $request->query('group', 'teacher');
 
             $allTerms = Term::where('academic_session_id', $session->id)
                 ->orderBy('start_date')->get();
@@ -132,35 +149,19 @@ class DashboardController extends Controller
                 'teacher_id' => $filterTeacherId,
                 'class_id' => $filterClassId,
                 'subject_id' => $filterSubjectId,
-                'group' => $filterGroup,
             ]);
 
-            $data['pending_homework']   = $data['homework_logs']->filter(fn ($log) => $log->isSubmitted())->values();
-            $data['pending_attendance'] = $data['attendance_logs']->filter(fn ($log) => $log->isSubmitted())->values();
-            $data['pending_exams']      = ($data['exam_sittings'] ?? collect())
-                ->filter(fn ($row) => ($row['review_status'] ?? null) === 'submitted')
-                ->values();
-            $inbox = WorkInbox::present(
-                $reviews->compose($data, null),
-                $request,
-                HodReviewFeed::TYPE_LABELS,
-                $filterGroup,
-            );
-            $data['review_feed'] = $inbox['items'];
-            $data['review_feed_total'] = $inbox['total'];
-            $data['review_feed_filtered_total'] = $inbox['filtered_total'];
-            $data['review_feed_types'] = $inbox['types'];
-            $data['review_feed_groups'] = $inbox['groups'];
-            $data['review_feed_paginator'] = $inbox['paginator'];
-            $inboxType = $inbox['active_type'];
+            $approvalQueue = $approvals->compose($data);
+            $weeklyPulse = $pulse->compose($data, $user);
+            $flags = $exceptions->compose($data, $weeklyPulse);
+            $flags['closed'] = $exceptions->recentlyClosed($data);
+            $termlyDrawer = $drawer->compose($data, $user);
 
             $hodFilters = compact(
-                'sessionId', 'termId', 'filterTeacherId', 'filterClassId', 'filterSubjectId', 'filterWeek', 'filterGroup', 'inboxType'
+                'sessionId', 'termId', 'filterTeacherId', 'filterClassId', 'filterSubjectId', 'filterWeek'
             );
             $hodActiveFilters = (bool) array_filter([
                 $filterTeacherId, $filterClassId, $filterSubjectId, $filterWeek,
-                $filterGroup !== 'teacher',
-                $inboxType,
                 $termId && $termId !== (int) ($currentTerm?->id ?? 0),
                 $sessionId && $sessionId !== ($allSessions->first()?->id ?? 0),
             ]);
@@ -172,6 +173,11 @@ class DashboardController extends Controller
                 'allTerms'         => $allTerms,
                 'hodFilters'       => $hodFilters,
                 'hodActiveFilters' => $hodActiveFilters,
+                'approval_queue'   => $approvalQueue,
+                'weekly_pulse'     => $weeklyPulse,
+                'hod_flags'        => $flags,
+                'termly_drawer'    => $termlyDrawer,
+                'quicklog_actions' => $quickLog->actions($user),
             ]);
         }
 
@@ -275,17 +281,37 @@ class DashboardController extends Controller
 
         if ($user->isTeacher()) {
             $week = $curriculum->teacherWeek($user, $session);
-            $week['inbox'] = WorkInbox::present(
-                collect($week['tasks'] ?? []),
-                $request,
-                TeacherTaskFeed::TYPE_LABELS,
-                'class',
-            );
+            $actions = $teacherTasks->actionableFrom(collect($week['tasks'] ?? []));
+            $pageSize = 10;
+            $paginator = null;
+            $actionItems = $actions;
+            if ($actions->count() > $pageSize) {
+                $page = max(1, $request->integer('actions_page'));
+                $actionItems = $actions->forPage($page, $pageSize)->values();
+                $paginator = new LengthAwarePaginator(
+                    $actionItems,
+                    $actions->count(),
+                    $pageSize,
+                    $page,
+                    [
+                        'path' => $request->url(),
+                        'pageName' => 'actions_page',
+                        'query' => $request->except('actions_page'),
+                    ]
+                );
+            }
 
             return view('dashboard.teacher', [
                 ...$week,
-                'session'     => $session,
+                'session' => $session,
                 'allSessions' => $allSessions,
+                'my_actions' => $actionItems,
+                'my_actions_total' => $actions->count(),
+                'my_actions_paginator' => $paginator,
+                'teaching_week' => $weekBoard->compose($week + ['session' => $session]),
+                'performance' => $teacherPerformance->compose($week, $user),
+                'activity_drawer' => $teacherDrawer->compose($week, $user),
+                'quicklog_actions' => $teacherQuickLog->actions($user),
             ]);
         }
 
@@ -293,6 +319,56 @@ class DashboardController extends Controller
             'summary'     => $dashboard->executiveSummary($user->school_id, $session->id),
             'session'     => $session,
             'allSessions' => $allSessions,
+            'accountability' => $this->presentAccountability([
+                'hods' => collect(),
+                'teachers' => collect(),
+                'week_number' => 1,
+            ], $request),
+            'leadership' => ['items' => collect(), 'counts' => [], 'week_number' => 1, 'review' => null],
+            'canReviewWeek' => false,
         ]);
+    }
+
+    /**
+     * @param  array{hods?: mixed, teachers?: mixed, week_number?: int}  $composed
+     * @return array<string, mixed>
+     */
+    protected function presentAccountability(array $composed, Request $request): array
+    {
+        $hods = collect($composed['hods'] ?? []);
+        $teachers = collect($composed['teachers'] ?? []);
+        $tab = $request->query('behind') === 'teachers' ? 'teachers' : 'hods';
+
+        return [
+            'week_number' => (int) ($composed['week_number'] ?? 1),
+            'tab' => $tab,
+            'hods_total' => $hods->count(),
+            'teachers_total' => $teachers->count(),
+            'hods' => $this->paginateBehind($hods, $request, 'hods_page'),
+            'teachers' => $this->paginateBehind($teachers, $request, 'teachers_page'),
+        ];
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, array<string, mixed>>  $rows
+     */
+    protected function paginateBehind($rows, Request $request, string $pageName): LengthAwarePaginator
+    {
+        $pageSize = LeadershipAccountability::PAGE_SIZE;
+        $total = $rows->count();
+        $lastPage = max(1, (int) ceil($total / $pageSize));
+        $page = max(1, min($lastPage, $request->integer($pageName) ?: 1));
+
+        return new LengthAwarePaginator(
+            $rows->forPage($page, $pageSize)->values(),
+            $total,
+            $pageSize,
+            $page,
+            [
+                'path' => $request->url(),
+                'pageName' => $pageName,
+                'query' => $request->except($pageName),
+            ]
+        );
     }
 }

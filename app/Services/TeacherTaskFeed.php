@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\AcademicSession;
-use App\Models\AtRiskLearner;
 use App\Models\AttendanceLog;
 use App\Models\HomeworkLog;
 use App\Models\SchemeOfWork;
@@ -19,6 +18,8 @@ class TeacherTaskFeed
     public const URGENCY_REJECTED = 10;
 
     public const URGENCY_CATCH_UP = 20;
+
+    public const URGENCY_SCHEME = 25;
 
     public const URGENCY_PLAN_OVERDUE = 30;
 
@@ -43,6 +44,7 @@ class TeacherTaskFeed
      */
     public const TYPE_LABELS = [
         'plan' => 'Lesson plans',
+        'scheme' => 'Schemes of Work',
         'coverage' => 'Coverage logs',
         'catch-up' => 'Catch-up',
         'waiting' => 'Waiting on HOD',
@@ -72,6 +74,7 @@ class TeacherTaskFeed
 
         if ($term) {
             $tasks = $tasks
+                ->concat($this->schemeTasks($week, $session, $term, $teacher, $blocked))
                 ->concat($this->curriculumTasks($week, $term, $teacher, $blocked))
                 ->concat($this->registerTasks($week, $blocked))
                 ->concat($this->homeworkTasks($week, $blocked))
@@ -85,6 +88,112 @@ class TeacherTaskFeed
                 ['title', 'asc'],
             ])
             ->values();
+    }
+
+    /**
+     * Teacher-actionable items only. Waiting on HOD has no CTA and stays on Teaching Week.
+     *
+     * @param  array<string, mixed>  $week
+     * @return Collection<int, array<string, mixed>>
+     */
+    public function actionable(User $teacher, AcademicSession $session, array $week): Collection
+    {
+        return $this->actionableFrom($this->compose($teacher, $session, $week));
+    }
+
+    /**
+     * @param  Collection<int, array<string, mixed>>  $tasks
+     * @return Collection<int, array<string, mixed>>
+     */
+    public function actionableFrom(Collection $tasks): Collection
+    {
+        return $tasks
+            ->filter(fn (array $task) => ($task['type'] ?? '') !== 'waiting' && filled($task['cta'] ?? null))
+            ->values();
+    }
+
+    /**
+     * @param  array<string, mixed>  $week
+     * @return Collection<int, array<string, mixed>>
+     */
+    protected function schemeTasks(array $week, AcademicSession $session, Term $term, User $teacher, bool $blocked): Collection
+    {
+        if (! $teacher->isTeacher()) {
+            return collect();
+        }
+
+        /** @var Collection<int, TeacherAssignment> $assignments */
+        $assignments = collect($week['assignments'] ?? []);
+        /** @var Collection<int, SchemeOfWork> $pipeline */
+        $pipeline = collect($week['scheme_pipeline'] ?? []);
+
+        return $assignments->map(function (TeacherAssignment $assignment) use ($pipeline, $session, $term, $blocked) {
+            $pair = $pipeline->filter(
+                fn (SchemeOfWork $scheme) => (int) $scheme->school_class_id === (int) $assignment->school_class_id
+                    && (int) $scheme->subject_id === (int) $assignment->subject_id
+            );
+
+            if ($pair->contains(fn (SchemeOfWork $scheme) => $scheme->isActive() || $scheme->isApproved())) {
+                return null;
+            }
+
+            if ($pair->contains(fn (SchemeOfWork $scheme) => $scheme->isSubmitted())) {
+                return null;
+            }
+
+            $context = $assignment->schoolClass->name.' · '.$assignment->subject->name;
+            $scope = [
+                'class' => $assignment->schoolClass->name,
+                'subject' => $assignment->subject->name,
+            ];
+            $returned = $pair->first(fn (SchemeOfWork $scheme) => $scheme->isReturned());
+            if ($returned) {
+                return $this->task(
+                    'scheme-'.$assignment->id,
+                    'scheme',
+                    self::URGENCY_REJECTED,
+                    'Revise scheme of work',
+                    $context.' · '.($returned->rejection_reason ?: 'Returned for revision.'),
+                    $blocked ? null : route('schemes.edit', $returned),
+                    $blocked ? null : 'Revise scheme',
+                    'Rejected',
+                    $blocked,
+                    $scope,
+                );
+            }
+
+            $draft = $pair->first(fn (SchemeOfWork $scheme) => $scheme->isEditableDraft());
+            if ($draft) {
+                return $this->task(
+                    'scheme-'.$assignment->id,
+                    'scheme',
+                    self::URGENCY_SCHEME,
+                    'Submit scheme of work',
+                    $context.' · Continue the draft and submit it for HOD review.',
+                    $blocked ? null : route('schemes.edit', $draft),
+                    $blocked ? null : 'Continue draft',
+                    'Draft',
+                    $blocked,
+                    $scope,
+                );
+            }
+
+            return $this->task(
+                'scheme-'.$assignment->id,
+                'scheme',
+                self::URGENCY_SCHEME,
+                'Submit scheme of work',
+                $context.' · No Active scheme this term.',
+                $blocked ? null : route('schemes.create', [
+                    'session_id' => $session->id,
+                    'term_id' => $term->id,
+                ]),
+                $blocked ? null : 'Submit scheme',
+                'Due',
+                $blocked,
+                $scope,
+            );
+        })->filter()->values();
     }
 
     /**
@@ -422,11 +531,9 @@ class TeacherTaskFeed
      */
     protected function atRiskTasks(array $week, User $teacher, bool $blocked): Collection
     {
-        $atRisk = $week['at_risk'] ?? [];
-        $unflagged = collect($atRisk['unflagged'] ?? []);
-        $records = collect($atRisk['records'] ?? []);
+        $unflagged = collect(($week['at_risk'] ?? [])['unflagged'] ?? []);
 
-        $flagTasks = $unflagged->map(function (array $row) use ($blocked) {
+        return $unflagged->map(function (array $row) use ($blocked) {
             $learner = $row['learner'];
 
             return $this->task(
@@ -442,32 +549,7 @@ class TeacherTaskFeed
                 $blocked,
                 ['class' => $learner->schoolClass->name ?? null],
             );
-        });
-
-        $planTasks = $records
-            ->filter(fn ($record) => $record instanceof AtRiskLearner && ! $record->hasActivePlan())
-            ->map(function (AtRiskLearner $record) use ($teacher, $blocked) {
-                $href = $blocked ? null : (
-                    $teacher->canManageInterventionPlans()
-                        ? route('at-risk.plans.create', $record)
-                        : route('at-risk.show', $record)
-                );
-
-                return $this->task(
-                    'at-risk-plan-'.$record->id,
-                    'at-risk-plan',
-                    self::URGENCY_AT_RISK_PLAN,
-                    $record->learner->name,
-                    ($record->schoolClass->name ?? 'Class').' · Identified without an active plan. Learning Support or HOD adds the IIP.',
-                    $href,
-                    $blocked ? null : ($teacher->canManageInterventionPlans() ? 'Add intervention plan' : 'Open caseload'),
-                    'No plan',
-                    $blocked,
-                    ['class' => $record->schoolClass->name ?? null],
-                );
-            });
-
-        return $flagTasks->concat($planTasks)->values();
+        })->values();
     }
 
     /**

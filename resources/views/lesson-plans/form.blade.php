@@ -1,14 +1,79 @@
 @php
     $isEdit = $plan->exists;
     $selectedId = old('topic_id', $selectedTopic?->id ?? $plan->topic_id);
+    $focusScheme = $focusScheme ?? null;
+    $createUrl = route('lesson-plans.create', array_filter(['scheme' => $focusScheme?->id]));
 @endphp
 
 <x-portal-layout :title="$isEdit ? 'Revise Lesson Plan' : 'Submit Lesson Plan'">
     <x-portal.page-intro
         eyebrow="Appendix A · AE-05"
-        :title="$isEdit ? 'Revise lesson plan' : 'Weekly lesson plan'"
+        :title="$isEdit ? 'Revise lesson plan' : ($focusScheme ? 'Plan lessons from approved SoW' : 'Weekly lesson plan')"
         meta="Plans must use Active Scheme of Work topics and their approved learning objectives. Submitting a plan is not delivery or verified coverage. Due day follows the school planning policy ({{ $dueWeekdayName ?? 'Thursday' }})."
     />
+
+    @if ($focusScheme)
+        <x-portal.panel title="Approved scheme of work" class="mb-6">
+            <dl class="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                <div>
+                    <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Session</dt>
+                    <dd class="mt-0.5 text-slate-800">{{ $focusScheme->academicSession?->name ?? $session?->name }}</dd>
+                </div>
+                <div>
+                    <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Term</dt>
+                    <dd class="mt-0.5 text-slate-800">{{ $focusScheme->term?->name ?? '—' }}</dd>
+                </div>
+                <div>
+                    <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">School section</dt>
+                    <dd class="mt-0.5 text-slate-800">{{ $focusScheme->schoolClass?->schoolSection?->name ?? 'Unassigned' }}</dd>
+                </div>
+                <div>
+                    <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Class</dt>
+                    <dd class="mt-0.5 text-slate-800">{{ $focusScheme->schoolClass?->name }}</dd>
+                </div>
+                <div>
+                    <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Subject</dt>
+                    <dd class="mt-0.5 text-slate-800">{{ $focusScheme->subject?->name }}</dd>
+                </div>
+                <div>
+                    <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Scheme version</dt>
+                    <dd class="mt-0.5 text-slate-800">Active v{{ $focusScheme->version }}</dd>
+                </div>
+            </dl>
+            @if ($focusScheme->topics->isNotEmpty())
+                <div class="mt-5 overflow-x-auto -mx-5 sm:-mx-6">
+                    <table class="min-w-full text-sm">
+                        <thead class="bg-slate-50 text-left">
+                            <tr>
+                                <th class="px-5 sm:px-6 py-3 font-semibold text-slate-600">Week</th>
+                                <th class="px-5 py-3 font-semibold text-slate-600">Topic</th>
+                                <th class="px-5 sm:px-6 py-3 font-semibold text-slate-600">Learning objectives</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @foreach ($focusScheme->topics as $topic)
+                                <tr>
+                                    <td class="px-5 sm:px-6 py-3 text-slate-600 align-top whitespace-nowrap">{{ $topic->week_number }}</td>
+                                    <td class="px-5 py-3 font-medium text-slate-800 align-top">{{ $topic->title }}</td>
+                                    <td class="px-5 sm:px-6 py-3 text-slate-600 align-top">
+                                        @if ($topic->learning_objectives)
+                                            <ul class="list-disc pl-4 space-y-1">
+                                                @foreach ($topic->learning_objectives as $objective)
+                                                    <li>{{ $objective }}</li>
+                                                @endforeach
+                                            </ul>
+                                        @else
+                                            <span class="text-slate-400">—</span>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @endif
+        </x-portal.panel>
+    @endif
 
     <x-portal.panel :title="$isEdit ? 'Update and resubmit' : 'Plan details'">
         @if ($isEdit && ($plan->rejection_reason || $plan->review_checklist))
@@ -28,7 +93,7 @@
 
             <div>
                 <x-input-label for="topic_id" value="Active Scheme of Work topic" />
-                <select id="topic_id" name="topic_id" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" @disabled($isEdit) onchange="if(this.value){ window.location='{{ route('lesson-plans.create') }}?topic='+this.value; }">
+                <select id="topic_id" name="topic_id" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" @disabled($isEdit) onchange="if(this.value){ window.location='{{ $createUrl }}'+('{{ $createUrl }}'.includes('?') ? '&' : '?')+'topic='+this.value; }">
                     <option value="">Select topic...</option>
                     @foreach ($schemes as $scheme)
                         <optgroup label="{{ $scheme->schoolClass->name }} — {{ $scheme->subject->name }}">
@@ -102,7 +167,7 @@
 
             <div class="flex flex-wrap gap-3 pt-2">
                 <x-primary-button>Submit for HoD approval</x-primary-button>
-                <a href="{{ route('lesson-plans.index') }}" class="inline-flex items-center rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-slate-700 transition hover:bg-slate-50">Cancel</a>
+                <a href="{{ $focusScheme ? route('schemes.show', $focusScheme) : route('lesson-plans.index') }}" class="inline-flex items-center rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-slate-700 transition hover:bg-slate-50">Cancel</a>
             </div>
         </form>
     </x-portal.panel>

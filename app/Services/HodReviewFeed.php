@@ -58,6 +58,58 @@ class HodReviewFeed
     ];
 
     /**
+     * Supervisory action groups for the HOD dashboard. Types stay composed; the UI rolls them up.
+     *
+     * @var array<string, array<string, mixed>>
+     */
+    public const ACTION_GROUPS = [
+        'plans' => [
+            'label' => 'Lesson plans and curriculum alignment',
+            'summary' => 'Submitted plans awaiting HOD approval.',
+            'types' => ['plan'],
+            'page_route' => 'lesson-plans.index',
+            'page_params' => ['status' => 'submitted'],
+            'page_label' => 'Open lesson plans',
+        ],
+        'coverage' => [
+            'label' => 'Curriculum coverage and verification',
+            'summary' => 'Delivery logs waiting for HOD verification.',
+            'types' => ['coverage'],
+            'page_route' => 'coverage-logs.index',
+            'page_params' => ['status' => 'submitted'],
+            'page_label' => 'Open coverage logs',
+        ],
+        'academic-reviews' => [
+            'label' => 'Homework, registers, and marksheets',
+            'summary' => 'Evidence reviews and missing weekly capture.',
+            'types' => ['homework-review', 'register-review', 'exam-review', 'homework', 'register', 'exam'],
+            'page_route' => 'homework.index',
+            'page_params' => [],
+            'page_label' => 'Open homework',
+            'extra_links' => [
+                ['route' => 'attendance.index', 'label' => 'Registers'],
+                ['route' => 'exam-results.index', 'label' => 'Marksheets'],
+            ],
+        ],
+        'catch-up' => [
+            'label' => 'Curriculum gaps and catch-up plans',
+            'summary' => 'Behind-schedule Active SoW topics (AE-01.4, not an IIP).',
+            'types' => ['catch-up'],
+            'page_route' => 'curriculum-coverage.report',
+            'page_params' => [],
+            'page_label' => 'Open coverage report',
+        ],
+        'learner-support' => [
+            'label' => 'At-risk learners and interventions',
+            'summary' => 'Identified learners still needing a Tier 2/3 plan.',
+            'types' => ['at-risk-plan', 'at-risk-flag'],
+            'page_route' => 'at-risk.index',
+            'page_params' => ['plan' => 'without_plan'],
+            'page_label' => 'Open caseload',
+        ],
+    ];
+
+    /**
      * @param  array<string, mixed>  $ops
      * @return Collection<int, array<string, mixed>>
      */
@@ -106,6 +158,42 @@ class HodReviewFeed
     public function grouped(Collection $items, string $groupBy = 'teacher'): Collection
     {
         return WorkInbox::grouped($items, $groupBy, self::TYPE_LABELS);
+    }
+
+    /**
+     * @param  Collection<int, array<string, mixed>>  $items
+     * @return Collection<int, array<string, mixed>>
+     */
+    public function actionGroups(Collection $items): Collection
+    {
+        $types = WorkInbox::typeCounts($items, self::TYPE_LABELS)->keyBy('type');
+        $query = request()->except(['inbox_page', 'inbox_type']);
+
+        return collect(self::ACTION_GROUPS)->map(function (array $group, string $key) use ($types, $query) {
+            $typeRows = collect($group['types'])
+                ->map(fn (string $type) => $types->get($type))
+                ->filter()
+                ->values();
+            $firstType = collect($group['types'])->first(
+                fn (string $type) => (int) ($types->get($type)['count'] ?? 0) > 0
+            ) ?? $group['types'][0];
+
+            return [
+                'key' => $key,
+                'label' => $group['label'],
+                'summary' => $group['summary'],
+                'count' => (int) $typeRows->sum('count'),
+                'overdue' => (int) $typeRows->sum('overdue'),
+                'types' => $typeRows,
+                'queue_href' => route('dashboard', $query + ['inbox_type' => $firstType]),
+                'page_href' => route($group['page_route'], $group['page_params'] ?? []),
+                'page_label' => $group['page_label'],
+                'extra_links' => collect($group['extra_links'] ?? [])->map(fn (array $link) => [
+                    'href' => route($link['route'], $link['params'] ?? []),
+                    'label' => $link['label'],
+                ])->all(),
+            ];
+        })->values();
     }
 
     /**

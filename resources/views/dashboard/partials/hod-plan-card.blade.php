@@ -23,6 +23,7 @@
                 </p>
             @endif
             <p class="mt-2 text-sm text-slate-700"><span class="font-medium">Objectives:</span> {{ $plan->objectives }}</p>
+            <a href="{{ route('lesson-plans.show', $plan) }}" class="mt-3 inline-block text-xs font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">View full plan</a>
             @if ($plan->fileUrl())
                 <a href="{{ $plan->fileUrl() }}" class="mt-2 inline-block text-xs font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline" target="_blank">View attachment</a>
             @endif

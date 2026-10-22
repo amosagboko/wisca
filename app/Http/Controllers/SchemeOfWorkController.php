@@ -8,6 +8,7 @@ use App\Models\SchoolClass;
 use App\Models\Subject;
 use App\Models\TeacherAssignment;
 use App\Models\Term;
+use App\Services\HodScope;
 use App\Services\SchemeOfWorkBulkUpload;
 use App\Services\SchemeOfWorkService;
 use Illuminate\Http\RedirectResponse;
@@ -44,50 +45,72 @@ class SchemeOfWorkController extends Controller
         $filterClassId = $request->integer('class_id');
         $filterSubjectId = $request->integer('subject_id');
         $filterStatus = (string) $request->query('status', '');
+        $search = trim((string) $request->query('q', ''));
+        $queue = (string) $request->query('queue', '');
+        $sort = (string) $request->query('sort', 'updated_at');
+        $direction = strtolower((string) $request->query('direction', 'desc')) === 'asc' ? 'asc' : 'desc';
+        if (! in_array($sort, ['updated_at', 'session', 'class', 'subject', 'status'], true)) {
+            $sort = 'updated_at';
+        }
 
         $query = SchemeOfWork::query()
             ->where('academic_session_id', $session->id)
-            ->with(['subject', 'schoolClass', 'term', 'academicSession', 'hosApprover', 'boardApprover', 'topics'])
+            ->with(['subject', 'schoolClass', 'term.academicSession.school', 'academicSession.school'])
             ->when($termId, fn ($q) => $q->where('term_id', $termId))
             ->when($filterClassId, fn ($q) => $q->where('school_class_id', $filterClassId))
             ->when($filterSubjectId, fn ($q) => $q->where('subject_id', $filterSubjectId));
 
-        if ($user->isTeacher() && ! $user->isHoD() && ! $this->schemes->canOversee($user)) {
+        if ($this->schemes->canOversee($user)) {
+            // School-wide read for HoS / Board / Admin / AH.
+        } elseif ($user->isHoD()) {
+            app(HodScope::class)->constrainByClass($query, $user);
+        } elseif ($user->isTeacher()) {
             $assignments = TeacherAssignment::where('teacher_id', $user->id)
                 ->where('academic_session_id', $session->id)
                 ->where('status', 'active')
                 ->get();
 
-            $query->whereIn('status', ['approved', 'active'])->where(function ($inner) use ($assignments) {
+            $query->where(function ($inner) use ($user, $assignments) {
+                $inner->where('uploaded_by', $user->id);
+
                 foreach ($assignments as $assignment) {
                     $inner->orWhere(function ($pair) use ($assignment) {
                         $pair->where('school_class_id', $assignment->school_class_id)
                             ->where('subject_id', $assignment->subject_id);
                     });
                 }
-
-                if ($assignments->isEmpty()) {
-                    $inner->whereRaw('1 = 0');
-                }
             });
-        } elseif ($user->isHoD() && ! $this->schemes->canOversee($user)) {
-            $query->whereHas('subject', fn ($q) => $q->where('school_id', $user->school_id));
+        }
+
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $query->where(function ($inner) use ($like) {
+                $inner->whereHas('schoolClass', fn ($q) => $q->where('name', 'like', $like))
+                    ->orWhereHas('subject', fn ($q) => $q->where('name', 'like', $like))
+                    ->orWhereHas('academicSession', fn ($q) => $q->where('name', 'like', $like));
+            });
+        }
+
+        if ($queue === 'review' && $user->isHoD()) {
+            $query->where('status', 'draft')->whereNotNull('submitted_at');
         }
 
         if ($filterStatus === 'submitted') {
             $query->where('status', 'draft')->whereNotNull('submitted_at');
+        } elseif ($filterStatus === 'returned') {
+            $query->where('status', 'draft')->whereNull('submitted_at')->whereNotNull('rejection_reason');
+        } elseif ($filterStatus === 'draft') {
+            $query->where('status', 'draft')->whereNull('submitted_at')->whereNull('rejection_reason');
         } elseif ($filterStatus !== '') {
             $query->where('status', $filterStatus);
-            if ($filterStatus === 'draft') {
-                $query->whereNull('submitted_at');
-            }
         }
 
-        $schemes = $query
-            ->orderByDesc('version')
-            ->orderBy('school_class_id')
-            ->orderBy('subject_id')
-            ->get();
+        $activeCount = (clone $query)->where('status', 'active')->count();
+        $inFlight = (clone $query)->whereIn('status', ['draft', 'approved'])->count();
+
+        $this->applySchemeSort($query, $sort, $direction);
+
+        $schemes = $query->paginate(15)->withQueryString();
 
         $allClasses = SchoolClass::where('school_id', $user->school_id)->orderBy('display_order')->orderBy('name')->get();
         $allSubjects = Subject::where('school_id', $user->school_id)->orderBy('name')->get();
@@ -99,13 +122,21 @@ class SchemeOfWorkController extends Controller
             'allTerms' => $allTerms,
             'allClasses' => $allClasses,
             'allSubjects' => $allSubjects,
-            'canPrepare' => $user->isHoD(),
+            'canPrepare' => $this->schemes->canPrepare($user),
+            'canOversee' => $this->schemes->canOversee($user),
+            'canReviewQueue' => $user->isHoD(),
+            'activeCount' => $activeCount,
+            'inFlight' => $inFlight,
             'filters' => [
                 'sessionId' => $session->id,
                 'termId' => $termId,
                 'filterClassId' => $filterClassId,
                 'filterSubjectId' => $filterSubjectId,
                 'filterStatus' => $filterStatus,
+                'search' => $search,
+                'queue' => $queue,
+                'sort' => $sort,
+                'direction' => $direction,
             ],
         ]);
     }
@@ -113,14 +144,14 @@ class SchemeOfWorkController extends Controller
     public function create(Request $request): View
     {
         $user = auth()->user();
-        abort_unless($user->isHoD(), 403);
+        abort_unless($this->schemes->canPrepare($user), 403);
 
         return view('schemes.form', $this->formData($user, new SchemeOfWork(['status' => 'draft']), $request));
     }
 
     public function template(): StreamedResponse
     {
-        abort_unless(auth()->user()->isHoD(), 403);
+        abort_unless($this->schemes->canPrepare(auth()->user()), 403);
 
         return response()->streamDownload(
             function () {
@@ -136,7 +167,7 @@ class SchemeOfWorkController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $user = auth()->user();
-        abort_unless($user->isHoD(), 403);
+        abort_unless($this->schemes->canPrepare($user), 403);
 
         $validated = $this->validatedDraft($request);
         $scheme = $this->schemes->createDraft($user, $validated, $validated['topics'], $request->file('document'));
@@ -144,7 +175,7 @@ class SchemeOfWorkController extends Controller
         if ($request->input('_action') === 'submit') {
             $this->schemes->submit($user, $scheme);
 
-            return redirect()->route('schemes.show', $scheme)->with('success', 'Scheme of work submitted for HoS review.');
+            return redirect()->route('schemes.show', $scheme)->with('success', 'Scheme of work submitted for section HOD review.');
         }
 
         return redirect()->route('schemes.edit', $scheme)->with('success', 'Draft scheme of work saved.');
@@ -153,29 +184,31 @@ class SchemeOfWorkController extends Controller
     public function show(SchemeOfWork $scheme): View
     {
         $user = auth()->user();
-        $scheme->load(['subject', 'schoolClass', 'term', 'academicSession', 'topics', 'uploadedBy', 'submittedBy', 'hosApprover', 'boardApprover', 'rejectedBy', 'replaces']);
+        $scheme->load(['subject', 'schoolClass.schoolSection', 'term.academicSession.school', 'academicSession.school', 'topics.latestLessonPlan', 'uploadedBy', 'submittedBy', 'approvedBy', 'hosApprover', 'boardApprover', 'rejectedBy', 'replaces']);
         abort_unless($this->schemes->canView($user, $scheme), 403);
 
         return view('schemes.show', [
             'scheme' => $scheme,
-            'canPrepare' => $user->isHoD(),
-            'canHosApprove' => $user->isHoS() && $scheme->canHosApprove(),
-            'canBoardApprove' => $user->isBoard() && $scheme->canBoardApprove(),
-            'canActivate' => $user->isBoard() && $scheme->canActivate(),
-            'canReject' => ($user->isHoS() || $user->isBoard()) && $scheme->canReject(),
-            'canEdit' => $user->isHoD() && $scheme->isEditableDraft(),
-            'canSubmit' => $user->isHoD() && $scheme->canBeSubmitted(),
-            'canClone' => $user->isHoD(),
-            'canDelete' => $user->isHoD() && $scheme->canBePermanentlyDeleted(),
+            'canPrepare' => $this->schemes->canPrepare($user),
+            'canHodApprove' => $this->schemes->canApproveScheme($user, $scheme),
+            'canReject' => $this->schemes->canRejectScheme($user, $scheme),
+            'canEdit' => $this->schemes->canEditDraft($user, $scheme),
+            'canSubmit' => $this->schemes->canEditDraft($user, $scheme) && $scheme->canBeSubmitted(),
+            'canClone' => $this->schemes->canPrepare($user) && $this->schemes->teacherHasAssignment(
+                $user,
+                (int) $scheme->academic_session_id,
+                (int) $scheme->school_class_id,
+                (int) $scheme->subject_id,
+            ),
+            'canDelete' => $this->schemes->canEditDraft($user, $scheme) && $scheme->canBePermanentlyDeleted(),
+            'canPlanLessons' => $this->schemes->canPlanLessons($user, $scheme),
         ]);
     }
 
     public function edit(SchemeOfWork $scheme, Request $request): View
     {
         $user = auth()->user();
-        abort_unless($user->isHoD(), 403);
-        abort_unless($scheme->isEditableDraft(), 403, 'Only unsubmitted drafts can be edited.');
-        abort_unless($this->schemes->canView($user, $scheme), 403);
+        abort_unless($this->schemes->canEditDraft($user, $scheme), 403, 'Only the teacher who uploaded an unsubmitted draft can edit it.');
 
         return view('schemes.form', $this->formData($user, $scheme, $request));
     }
@@ -183,7 +216,7 @@ class SchemeOfWorkController extends Controller
     public function update(Request $request, SchemeOfWork $scheme): RedirectResponse
     {
         $user = auth()->user();
-        abort_unless($user->isHoD(), 403);
+        abort_unless($this->schemes->canEditDraft($user, $scheme), 403);
 
         $validated = $this->validatedDraft($request);
         $scheme = $this->schemes->updateDraft($user, $scheme, $validated, $validated['topics'], $request->file('document'));
@@ -191,7 +224,7 @@ class SchemeOfWorkController extends Controller
         if ($request->input('_action') === 'submit') {
             $this->schemes->submit($user, $scheme);
 
-            return redirect()->route('schemes.show', $scheme)->with('success', 'Scheme of work submitted for HoS review.');
+            return redirect()->route('schemes.show', $scheme)->with('success', 'Scheme of work submitted for section HOD review.');
         }
 
         return redirect()->route('schemes.edit', $scheme)->with('success', 'Draft scheme of work updated.');
@@ -201,7 +234,7 @@ class SchemeOfWorkController extends Controller
     {
         $this->schemes->submit(auth()->user(), $scheme);
 
-        return redirect()->route('schemes.show', $scheme)->with('success', 'Scheme of work submitted for HoS review.');
+        return redirect()->route('schemes.show', $scheme)->with('success', 'Scheme of work submitted for section HOD review.');
     }
 
     public function clone(SchemeOfWork $scheme): RedirectResponse
@@ -211,14 +244,45 @@ class SchemeOfWorkController extends Controller
         return redirect()->route('schemes.edit', $copy)->with('success', 'Cloned as a new draft. Edit and submit when ready.');
     }
 
+    public function cloneSessionForm(SchemeOfWork $scheme): View
+    {
+        $user = auth()->user();
+        abort_unless($this->schemes->canPrepare($user), 403);
+        abort_unless($this->schemes->canView($user, $scheme), 403);
+
+        $scheme->load(['subject', 'schoolClass', 'term', 'academicSession']);
+        $sessions = AcademicSession::where('school_id', $user->school_id)->orderByDesc('start_date')->get();
+        $terms = Term::query()
+            ->whereIn('academic_session_id', $sessions->pluck('id')->filter())
+            ->orderBy('sequence')
+            ->orderBy('start_date')
+            ->get(['id', 'academic_session_id', 'name', 'sequence', 'is_current']);
+
+        return view('schemes.clone-session', compact('scheme', 'sessions', 'terms'));
+    }
+
+    public function cloneSession(Request $request, SchemeOfWork $scheme): RedirectResponse
+    {
+        $validated = $request->validate([
+            'academic_session_id' => ['required', 'exists:academic_sessions,id'],
+            'term_id' => ['required', 'exists:terms,id'],
+        ]);
+
+        $copy = $this->schemes->cloneToSession(
+            auth()->user(),
+            $scheme,
+            (int) $validated['academic_session_id'],
+            (int) $validated['term_id'],
+        );
+
+        return redirect()->route('schemes.edit', $copy)->with('success', 'Cloned into the destination session as a new draft. Edit and submit when ready.');
+    }
+
     public function approve(SchemeOfWork $scheme): RedirectResponse
     {
         $scheme = $this->schemes->approve(auth()->user(), $scheme);
-        $message = $scheme->isApproved()
-            ? 'Board approval recorded. The scheme is approved and ready to activate.'
-            : 'HoS approval recorded. Waiting for Board approval.';
 
-        return redirect()->route('schemes.show', $scheme)->with('success', $message);
+        return redirect()->route('schemes.show', $scheme)->with('success', 'Scheme of work approved and set Active. Teachers can plan against this version.');
     }
 
     public function reject(Request $request, SchemeOfWork $scheme): RedirectResponse
@@ -229,14 +293,7 @@ class SchemeOfWorkController extends Controller
 
         $this->schemes->reject(auth()->user(), $scheme, $validated['rejection_reason']);
 
-        return redirect()->route('schemes.show', $scheme)->with('success', 'Scheme of work returned to draft. The Head of Department can revise and resubmit.');
-    }
-
-    public function activate(SchemeOfWork $scheme): RedirectResponse
-    {
-        $this->schemes->activate(auth()->user(), $scheme);
-
-        return redirect()->route('schemes.show', $scheme)->with('success', 'Scheme of work is now Active. Teachers will plan against this version.');
+        return redirect()->route('schemes.show', $scheme)->with('success', 'Scheme of work returned to draft. The teacher can revise and resubmit.');
     }
 
     public function destroy(SchemeOfWork $scheme): RedirectResponse
@@ -259,6 +316,26 @@ class SchemeOfWorkController extends Controller
         return $user->isHoD()
             || $user->isTeacher()
             || $this->schemes->canOversee($user);
+    }
+
+    protected function applySchemeSort($query, string $sort, string $direction): void
+    {
+        match ($sort) {
+            'session' => $query->orderBy(
+                AcademicSession::select('name')->whereColumn('academic_sessions.id', 'schemes_of_work.academic_session_id'),
+                $direction,
+            ),
+            'class' => $query->orderBy(
+                SchoolClass::select('name')->whereColumn('school_classes.id', 'schemes_of_work.school_class_id'),
+                $direction,
+            ),
+            'subject' => $query->orderBy(
+                Subject::select('name')->whereColumn('subjects.id', 'schemes_of_work.subject_id'),
+                $direction,
+            ),
+            'status' => $query->orderBy('status', $direction)->orderBy('submitted_at', $direction),
+            default => $query->orderBy('updated_at', $direction),
+        };
     }
 
     /**
@@ -353,16 +430,34 @@ class SchemeOfWorkController extends Controller
         $selectedTermId = $selectedTermId
             ?? $terms->firstWhere('is_current', true)?->id
             ?? $terms->first()?->id;
+        $assignments = TeacherAssignment::where('teacher_id', $user->id)
+            ->where('status', 'active')
+            ->get(['academic_session_id', 'school_class_id', 'subject_id']);
+
+        $assignedClassIds = $assignments->pluck('school_class_id')->unique()->filter()->all();
+        $assignedSubjectIds = $assignments->pluck('subject_id')->unique()->filter()->all();
+
         $classes = SchoolClass::where('school_id', $user->school_id)
             ->where('status', 'active')
-            ->with('offeredSubjects')
+            ->whereIn('id', $assignedClassIds ?: [0])
             ->orderBy('display_order')
             ->orderBy('name')
             ->get();
-        $subjects = Subject::where('school_id', $user->school_id)->where('status', 'active')->orderBy('name')->get();
-        $offeredByClass = $classes->mapWithKeys(fn (SchoolClass $class) => [
-            (string) $class->id => $class->offeredSubjects->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
-        ])->all();
+        $subjects = Subject::where('school_id', $user->school_id)
+            ->where('status', 'active')
+            ->whereIn('id', $assignedSubjectIds ?: [0])
+            ->orderBy('name')
+            ->get();
+
+        $assignmentsBySession = [];
+        foreach ($assignments as $assignment) {
+            $sessionKey = (string) $assignment->academic_session_id;
+            $classKey = (string) $assignment->school_class_id;
+            $assignmentsBySession[$sessionKey][$classKey] ??= [];
+            $assignmentsBySession[$sessionKey][$classKey][] = (int) $assignment->subject_id;
+        }
+
+        $offeredByClass = $assignmentsBySession[(string) $selectedSessionId] ?? [];
 
         $topicRows = old('topics');
         if (! is_array($topicRows)) {
@@ -382,6 +477,7 @@ class SchemeOfWorkController extends Controller
             'classes' => $classes,
             'subjects' => $subjects,
             'offeredByClass' => $offeredByClass,
+            'assignmentsBySession' => $assignmentsBySession,
             'topicRows' => array_values($topicRows),
             'session' => $session,
             'allTerms' => $allTerms,

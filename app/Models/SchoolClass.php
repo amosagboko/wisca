@@ -15,7 +15,7 @@ class SchoolClass extends Model
     protected $table = 'school_classes';
 
     protected $fillable = [
-        'school_id', 'name', 'level', 'display_order', 'status',
+        'school_id', 'school_section_id', 'name', 'level', 'display_order', 'status',
     ];
 
     protected static function booted(): void
@@ -37,6 +37,11 @@ class SchoolClass extends Model
     public function school(): BelongsTo
     {
         return $this->belongsTo(School::class);
+    }
+
+    public function schoolSection(): BelongsTo
+    {
+        return $this->belongsTo(SchoolSection::class);
     }
 
     public function offeredSubjects(): BelongsToMany

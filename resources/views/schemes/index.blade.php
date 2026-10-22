@@ -1,15 +1,28 @@
 @php
     $f = $filters;
-    $activeFilters = $f['termId'] || $f['filterClassId'] || $f['filterSubjectId'] || $f['filterStatus'] !== '';
-    $activeCount = $schemes->where('status', 'active')->count();
-    $inFlight = $schemes->filter(fn ($scheme) => in_array($scheme->status, ['draft', 'approved'], true))->count();
+    $activeFilters = $f['termId'] || $f['filterClassId'] || $f['filterSubjectId'] || $f['filterStatus'] !== '' || ($f['search'] ?? '') !== '' || ($f['queue'] ?? '') !== '';
+    $sortUrl = function (string $column) use ($f) {
+        $direction = ($f['sort'] ?? '') === $column && ($f['direction'] ?? 'desc') === 'asc' ? 'desc' : 'asc';
+
+        return route('schemes.index', array_filter([
+            'session_id' => $f['sessionId'] ?? null,
+            'term_id' => $f['termId'] ?: null,
+            'class_id' => $f['filterClassId'] ?: null,
+            'subject_id' => $f['filterSubjectId'] ?: null,
+            'status' => $f['filterStatus'] ?: null,
+            'q' => $f['search'] ?: null,
+            'queue' => $f['queue'] ?: null,
+            'sort' => $column,
+            'direction' => $direction,
+        ]));
+    };
 @endphp
 
 <x-portal-layout title="Schemes of Work">
     <x-portal.page-intro
         eyebrow="Appendix C · AE-01"
         title="Schemes of work"
-        meta="Controlled curriculum baseline: draft, dual approval (HoS then Board), then Active. Teachers plan against the Active version only."
+        meta="Teachers upload the class and subject scheme. The section HOD approves and activates. Teachers plan against the Active version only."
     >
         @if ($canPrepare)
             <x-slot:actions>
@@ -61,11 +74,23 @@
             <x-input-label for="f_status" value="Status" />
             <select id="f_status" name="status" class="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm">
                 <option value="">All</option>
-                @foreach (['draft' => 'Draft', 'submitted' => 'Submitted', 'approved' => 'Approved', 'active' => 'Active', 'archived' => 'Archived'] as $value => $label)
+                @foreach (['draft' => 'Draft', 'returned' => 'Returned', 'submitted' => 'Submitted', 'approved' => 'Approved', 'active' => 'Active', 'archived' => 'Archived'] as $value => $label)
                     <option value="{{ $value }}" @selected($f['filterStatus'] === $value)>{{ $label }}</option>
                 @endforeach
             </select>
         </div>
+        <div>
+            <x-input-label for="f_search" value="Search" />
+            <input id="f_search" type="search" name="q" value="{{ $f['search'] }}" placeholder="Class, subject, session" class="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm">
+        </div>
+        @if ($canReviewQueue ?? false)
+            <div class="flex items-center gap-2 pt-5">
+                <input id="f_queue" type="checkbox" name="queue" value="review" @checked(($f['queue'] ?? '') === 'review') class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500">
+                <x-input-label for="f_queue" value="Needs my review" />
+            </div>
+        @endif
+        <input type="hidden" name="sort" value="{{ $f['sort'] }}">
+        <input type="hidden" name="direction" value="{{ $f['direction'] }}">
         <div class="flex gap-2 pt-5">
             <x-primary-button type="submit">Apply</x-primary-button>
             @if ($activeFilters)
@@ -74,11 +99,11 @@
         </div>
     </form>
 
-    @if ($schemes->isNotEmpty())
+    @if ($schemes->total())
         <div class="portal-enter mb-6 flex flex-wrap gap-4">
             <div class="flex-1 min-w-[120px] rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
                 <p class="text-[11px] font-semibold uppercase tracking-widest text-slate-400">Versions</p>
-                <p class="mt-1 text-2xl font-display font-semibold text-[#0f2d4a]">{{ $schemes->count() }}</p>
+                <p class="mt-1 text-2xl font-display font-semibold text-[#0f2d4a]">{{ $schemes->total() }}</p>
             </div>
             <div class="flex-1 min-w-[120px] rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 shadow-sm">
                 <p class="text-[11px] font-semibold uppercase tracking-widest text-emerald-500">Active</p>
@@ -91,7 +116,7 @@
         </div>
     @endif
 
-    <x-portal.panel :title="'Scheme versions'.($schemes->count() ? ' ('.$schemes->count().')' : '')">
+    <x-portal.panel :title="'Scheme versions'.($schemes->total() ? ' ('.$schemes->total().')' : '')">
         @if ($schemes->isEmpty())
             <p class="text-sm text-slate-500">
                 No schemes of work match these filters.
@@ -104,23 +129,25 @@
                 <table class="min-w-full text-sm">
                     <thead class="bg-slate-50 text-left">
                         <tr>
-                            <th class="px-5 sm:px-6 py-3 font-semibold text-slate-600">Class / Subject</th>
+                            <th class="px-5 sm:px-6 py-3 font-semibold text-slate-600">S/N</th>
+                            <th class="px-5 py-3 font-semibold text-slate-600"><a href="{{ $sortUrl('session') }}" class="hover:underline">Session</a></th>
                             <th class="px-5 py-3 font-semibold text-slate-600">Term</th>
-                            <th class="px-5 py-3 font-semibold text-slate-600">Version</th>
-                            <th class="px-5 py-3 font-semibold text-slate-600">Status</th>
-                            <th class="px-5 py-3 font-semibold text-slate-600">Topics</th>
-                            <th class="px-5 py-3 font-semibold text-slate-600">Approvals</th>
-                            <th class="px-5 py-3 font-semibold text-slate-600"></th>
+                            <th class="px-5 py-3 font-semibold text-slate-600"><a href="{{ $sortUrl('class') }}" class="hover:underline">Class</a></th>
+                            <th class="px-5 py-3 font-semibold text-slate-600"><a href="{{ $sortUrl('subject') }}" class="hover:underline">Subject</a></th>
+                            <th class="px-5 py-3 font-semibold text-slate-600"><a href="{{ $sortUrl('status') }}" class="hover:underline">Status</a></th>
+                            <th class="px-5 py-3 font-semibold text-slate-600">Timing</th>
+                            <th class="px-5 py-3 font-semibold text-slate-600"><a href="{{ $sortUrl('updated_at') }}" class="hover:underline">Last Updated</a></th>
+                            <th class="px-5 py-3 font-semibold text-slate-600 text-right">Action</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
                         @foreach ($schemes as $scheme)
                             <tr>
-                                <td class="px-5 sm:px-6 py-3">
-                                    <p class="font-medium text-slate-800">{{ $scheme->schoolClass?->name }} — {{ $scheme->subject?->name }}</p>
-                                </td>
+                                <td class="px-5 sm:px-6 py-3 text-slate-500">{{ $schemes->firstItem() + $loop->index }}</td>
+                                <td class="px-5 py-3 text-slate-600">{{ $scheme->academicSession?->name }}</td>
                                 <td class="px-5 py-3 text-slate-600">{{ $scheme->term?->name }}</td>
-                                <td class="px-5 py-3 text-slate-600">v{{ $scheme->version }}</td>
+                                <td class="px-5 py-3 text-slate-800">{{ $scheme->schoolClass?->name }}</td>
+                                <td class="px-5 py-3 text-slate-800">{{ $scheme->subject?->name }}</td>
                                 <td class="px-5 py-3">
                                     <span @class([
                                         'inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide',
@@ -128,21 +155,33 @@
                                         'bg-sky-50 text-sky-700' => $scheme->isApproved(),
                                         'bg-slate-100 text-slate-600' => $scheme->isArchived(),
                                         'bg-amber-50 text-amber-700' => $scheme->isSubmitted(),
-                                        'bg-slate-50 text-slate-500' => $scheme->isEditableDraft(),
-                                    ])>{{ $scheme->processLabel() }}</span>
-                                    @if ($scheme->isActive())
-                                        <span class="ml-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Baseline</span>
+                                        'bg-rose-50 text-rose-700' => $scheme->isReturned(),
+                                        'bg-slate-50 text-slate-500' => $scheme->isEditableDraft() && ! $scheme->isReturned(),
+                                    ])>{{ $scheme->processLabel() }} v{{ $scheme->version }}</span>
+                                </td>
+                                <td class="px-5 py-3 text-xs font-medium">
+                                    @if ($scheme->submittedOnTime() === true)
+                                        <span class="text-emerald-700">On time</span>
+                                    @elseif ($scheme->submittedOnTime() === false)
+                                        <span class="text-amber-700">Late</span>
+                                    @else
+                                        <span class="text-slate-400">—</span>
                                     @endif
                                 </td>
-                                <td class="px-5 py-3 text-slate-600">{{ $scheme->topics->count() }}</td>
-                                <td class="px-5 py-3 text-xs text-slate-500">
-                                    HoS {{ $scheme->hasHosApproval() ? '✓' : '—' }}
-                                    · Board {{ $scheme->hasBoardApproval() ? '✓' : '—' }}
-                                </td>
-                                <td class="px-5 py-3 text-right whitespace-nowrap">
-                                    <a href="{{ route('schemes.show', $scheme) }}" class="font-medium text-[#0f2d4a] hover:underline">Open</a>
-                                    @if ($canPrepare && $scheme->canBePermanentlyDeleted())
-                                        <span class="mx-1 text-slate-300">·</span>
+                                <td class="px-5 py-3 text-slate-600">{{ $scheme->updated_at?->format('d M Y H:i') }}</td>
+                                <td class="px-5 py-3 text-right whitespace-nowrap space-x-2">
+                                    <a href="{{ route('schemes.show', $scheme) }}" class="font-medium text-[#0f2d4a] hover:underline">View</a>
+                                    @if ($canPrepare && $scheme->isEditableDraft() && (int) $scheme->uploaded_by === (int) auth()->id())
+                                        <a href="{{ route('schemes.edit', $scheme) }}" class="font-medium text-[#0f2d4a] hover:underline">Edit</a>
+                                    @endif
+                                    @if ($canPrepare)
+                                        <form method="POST" action="{{ route('schemes.clone', $scheme) }}" class="inline">
+                                            @csrf
+                                            <button type="submit" class="font-medium text-[#0f2d4a] hover:underline">Clone as draft</button>
+                                        </form>
+                                        <a href="{{ route('schemes.clone-session', $scheme) }}" class="font-medium text-[#0f2d4a] hover:underline">Clone to session</a>
+                                    @endif
+                                    @if ($canPrepare && $scheme->canBePermanentlyDeleted() && (int) $scheme->uploaded_by === (int) auth()->id())
                                         <button type="button"
                                                 onclick="document.getElementById('delete-scheme-{{ $scheme->id }}').classList.toggle('hidden')"
                                                 class="font-medium text-red-700 hover:underline">Delete</button>
@@ -151,7 +190,7 @@
                                             <p class="mt-1 text-xs text-red-900">
                                                 Version {{ $scheme->version }} of {{ $scheme->schoolClass?->name }} — {{ $scheme->subject?->name }}
                                                 ({{ $scheme->term?->name }}) will be deleted. Weekly topics on this version will be removed
-                                                and cannot be recovered. Lesson plans and coverage on other versions are not affected.
+                                                and cannot be recovered.
                                             </p>
                                             <form method="POST" action="{{ route('schemes.destroy', $scheme) }}" class="mt-3"
                                                   onsubmit="return confirm('This permanently deletes version {{ $scheme->version }} of {{ $scheme->schoolClass?->name }} — {{ $scheme->subject?->name }}. Topics on this version cannot be recovered. Continue?')">
@@ -167,6 +206,9 @@
                     </tbody>
                 </table>
             </div>
+            @if ($schemes->hasPages())
+                <div class="mt-4">{{ $schemes->onEachSide(1)->links() }}</div>
+            @endif
         @endif
     </x-portal.panel>
 </x-portal-layout>

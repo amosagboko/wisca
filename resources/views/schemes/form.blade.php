@@ -24,6 +24,7 @@
                   termId: @js((string) ($selectedTermId ?? '')),
                   classId: @js((string) old('school_class_id', $scheme->school_class_id ?? '')),
                   offeredByClass: @js($offeredByClass ?? []),
+                  assignmentsBySession: @js($assignmentsBySession ?? []),
                   termsBySession: @js($termsBySession),
                   get termsForSession() {
                       return this.termsBySession[this.sessionId] || [];
@@ -40,14 +41,35 @@
                       if (!this.classId) {
                           return false;
                       }
-                      const offered = this.offeredByClass[String(this.classId)] || [];
-                      if (!offered.length) {
-                          return true;
-                      }
+                      const bySession = this.assignmentsBySession[String(this.sessionId)] || this.offeredByClass || {};
+                      const offered = bySession[String(this.classId)] || [];
                       return offered.map(String).includes(String(id));
+                  },
+                  classAssigned(id) {
+                      const bySession = this.assignmentsBySession[String(this.sessionId)] || {};
+                      return Object.keys(bySession).includes(String(id));
+                  },
+                  moveTopic(index, direction) {
+                      const target = index + direction;
+                      if (target < 0 || target >= this.topics.length) {
+                          return;
+                      }
+                      const copy = this.topics.slice();
+                      const [row] = copy.splice(index, 1);
+                      copy.splice(target, 0, row);
+                      this.topics = copy;
+                  },
+                  confirmCsvReplace(event) {
+                      const input = document.getElementById('bulk_template');
+                      const hasCsv = input && input.files && input.files.length > 0;
+                      const hasTopics = this.topics.some(topic => String(topic.title || '').trim() !== '');
+                      if (hasCsv && hasTopics && !confirm('Uploading this CSV will replace the weekly topics currently on the form. Continue?')) {
+                          event.preventDefault();
+                      }
                   }
               }"
-              x-init="syncTerm()">
+              x-init="syncTerm()"
+              @submit="confirmCsvReplace($event)">
             @csrf
             @if ($isEdit)
                 @method('PUT')
@@ -85,7 +107,12 @@
                     <select id="school_class_id" name="school_class_id" required x-model="classId" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                         <option value="">Select class...</option>
                         @foreach ($classes as $class)
-                            <option value="{{ $class->id }}" @selected((int) old('school_class_id', $scheme->school_class_id) === $class->id)>{{ $class->name }}</option>
+                            <option
+                                value="{{ $class->id }}"
+                                x-show="classAssigned({{ $class->id }})"
+                                :disabled="!classAssigned({{ $class->id }})"
+                                @selected((int) old('school_class_id', $scheme->school_class_id) === $class->id)
+                            >{{ $class->name }}</option>
                         @endforeach
                     </select>
                     <x-input-error :messages="$errors->get('school_class_id')" class="mt-2" />
@@ -104,7 +131,7 @@
                         @endforeach
                     </select>
                     <x-input-error :messages="$errors->get('subject_id')" class="mt-2" />
-                    <p class="mt-1 text-xs text-slate-500">Subjects shown are those offered in the selected class.</p>
+                    <p class="mt-1 text-xs text-slate-500">Classes and subjects shown are those assigned to you in the selected session.</p>
                 </div>
             </div>
 
@@ -143,7 +170,11 @@
                                     <textarea rows="3" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" :name="'topics[' + index + '][learning_objectives]'" x-model="topic.learning_objectives" placeholder="Learners will…"></textarea>
                                 </div>
                             </div>
-                            <button type="button" class="mt-3 text-xs font-medium text-red-700 hover:underline" @click="if (topics.length > 1) topics.splice(index, 1)" x-show="topics.length > 1">Remove topic</button>
+                            <div class="mt-3 flex flex-wrap gap-3">
+                                <button type="button" class="text-xs font-medium text-[#0f2d4a] hover:underline" @click="moveTopic(index, -1)" x-show="index > 0">Move up</button>
+                                <button type="button" class="text-xs font-medium text-[#0f2d4a] hover:underline" @click="moveTopic(index, 1)" x-show="index < topics.length - 1">Move down</button>
+                                <button type="button" class="text-xs font-medium text-red-700 hover:underline" @click="if (topics.length > 1) topics.splice(index, 1)" x-show="topics.length > 1">Remove topic</button>
+                            </div>
                         </div>
                     </template>
                 </div>

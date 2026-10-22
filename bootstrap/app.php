@@ -16,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->redirectUsersTo(fn () => auth()->user()?->isAdmin() ? route('admin.dashboard') : route('dashboard'));
         $middleware->alias([
             'admin' => \App\Http\Middleware\EnsureUserIsAdmin::class,
+            'assignments' => \App\Http\Middleware\EnsureCanManageTeacherAssignments::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -17,6 +17,7 @@
                 <thead class="bg-slate-50 text-left">
                     <tr>
                         <th class="px-5 sm:px-6 py-3 font-semibold text-slate-600">Name</th>
+                        <th class="px-5 py-3 font-semibold text-slate-600">Section</th>
                         <th class="px-5 py-3 font-semibold text-slate-600">Level</th>
                         <th class="px-5 py-3 font-semibold text-slate-600">Status</th>
                         <th class="px-5 py-3 font-semibold text-slate-600 text-right">Actions</th>
@@ -26,6 +27,7 @@
                     @forelse ($classes as $class)
                         <tr class="border-t border-slate-100">
                             <td class="px-5 sm:px-6 py-3 font-medium text-slate-800">{{ $class->name }}</td>
+                            <td class="px-5 py-3 text-slate-600">{{ $class->schoolSection?->name ?? 'Unassigned' }}</td>
                             <td class="px-5 py-3">{{ $class->level }}</td>
                             <td class="px-5 py-3 capitalize">{{ $class->status }}</td>
                             <td class="px-5 py-3 text-right space-x-2">
@@ -40,7 +42,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="4" class="px-5 sm:px-6 py-8 text-center text-slate-500">No classes configured yet.</td>
+                            <td colspan="5" class="px-5 sm:px-6 py-8 text-center text-slate-500">No classes configured yet.</td>
                         </tr>
                     @endforelse
                 </tbody>

@@ -117,6 +117,7 @@ class HodReviewFeedTest extends TestCase
             'academic_session_id' => $session->id,
             'status' => 'active',
         ]);
+        $this->assignSectionHod($school, $users['head_of_department'], $class, 'Basic School '.$token, [$subject->id]);
 
         $scheme = SchemeOfWork::create([
             'subject_id' => $subject->id,
@@ -160,17 +161,22 @@ class HodReviewFeedTest extends TestCase
         $this->actingAs($world['users']['head_of_department'])
             ->get(route('dashboard'))
             ->assertOk()
-            ->assertSee('Reviews due')
-            ->assertSee('Lesson plans')
-            ->assertSee('Missing homework')
-            ->assertSee('Review plan')
+            ->assertSee('Action Queue')
+            ->assertSee('Weekly Pulse')
+            ->assertSee('Flags & Follow-ups')
+            ->assertSee('Termly Drawer')
+            ->assertSee('Lesson plan')
+            ->assertSee('Review lesson plan')
             ->assertSee('Number Bases')
-            ->assertSee('Homework not logged')
-            ->assertSee('View homework')
-            ->assertSee('View only')
+            ->assertSee('Learner Understanding')
+            ->assertSee('Awaiting data')
+            ->assertSee('Examination pass rate')
             ->assertDontSee('Due this week')
             ->assertDontSee('Approve homework')
-            ->assertDontSee('SLA overdue');
+            ->assertDontSee('Homework not logged')
+            ->assertDontSee('Review homework')
+            ->assertDontSee('Awaiting exam portal sync')
+            ->assertDontSee('Department coverage');
     }
 
     public function test_reviews_due_type_filter_hides_other_activity_groups(): void
@@ -192,10 +198,10 @@ class HodReviewFeedTest extends TestCase
         ]);
 
         $this->actingAs($world['users']['head_of_department'])
-            ->get(route('dashboard', ['inbox_type' => 'plan']))
+            ->get(route('dashboard'))
             ->assertOk()
             ->assertSee('Number Bases')
-            ->assertSee('Review plan')
+            ->assertSee('Review lesson plan')
             ->assertDontSee('Homework not logged');
     }
 
@@ -227,15 +233,22 @@ class HodReviewFeedTest extends TestCase
             ]);
         }
 
-        $pageOne = $this->actingAs($world['users']['head_of_department'])
-            ->get(route('dashboard', ['inbox_type' => 'plan']));
-        $pageOne->assertOk()->assertSee('inbox_page=2');
-
         $this->actingAs($world['users']['head_of_department'])
-            ->get(route('dashboard', ['inbox_type' => 'plan', 'inbox_page' => 2]))
+            ->get(route('dashboard'))
             ->assertOk()
             ->assertSee('Queued topic')
-            ->assertSee('Lesson plans');
+            ->assertSee('Action Queue')
+            ->assertSee('Lesson plans')
+            ->assertSee('Review lesson plan')
+            ->assertSee('Showing 3 of 12')
+            ->assertDontSee('inbox_page=2');
+
+        $this->actingAs($world['users']['head_of_department'])
+            ->get(route('hod.reviews.lesson-plans', ['session_id' => $world['session']->id, 'term_id' => $world['term']->id]))
+            ->assertOk()
+            ->assertSee('Queued topic 1')
+            ->assertSee('Queued topic 12')
+            ->assertSee('Review lesson plan');
     }
 
     public function test_logged_homework_drops_gap_from_hod_feed(): void
@@ -258,11 +271,13 @@ class HodReviewFeedTest extends TestCase
         $this->actingAs($world['users']['head_of_department'])
             ->get(route('dashboard'))
             ->assertOk()
-            ->assertSee('Reviews due')
+            ->assertSee('Action Queue')
+            ->assertSee('Homework/Classwork')
+            ->assertSee('80.0%')
             ->assertDontSee('Homework not logged')
-            ->assertSee('Review homework')
-            ->assertSee('Exercise 1')
-            ->assertSee('Approve homework');
+            ->assertDontSee('Review homework')
+            ->assertDontSee('Approve homework')
+            ->assertDontSee('Exercise 1');
     }
 
     public function test_plan_past_24_hours_is_overdue_on_hod_inbox(): void
@@ -288,7 +303,133 @@ class HodReviewFeedTest extends TestCase
             ->assertOk()
             ->assertSee('Number Bases')
             ->assertSee('Overdue')
-            ->assertSee('24-hour HOD review SLA has passed')
-            ->assertSee('24-hour review SLA overdue');
+            ->assertSee('24-hour HOD review SLA has passed');
+    }
+
+    public function test_submitted_scheme_appears_in_action_queue_and_homework_does_not(): void
+    {
+        $world = $this->world();
+
+        $submitted = SchemeOfWork::create([
+            'subject_id' => $world['subject']->id,
+            'school_class_id' => $world['class']->id,
+            'academic_session_id' => $world['session']->id,
+            'term_id' => $world['term']->id,
+            'version' => 2,
+            'uploaded_by' => $world['users']['teacher']->id,
+            'submitted_by' => $world['users']['teacher']->id,
+            'submitted_at' => now()->subHours(21),
+            'status' => 'draft',
+        ]);
+
+        $this->actingAs($world['users']['head_of_department'])
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertSee('Scheme of Work')
+            ->assertSee('Review scheme')
+            ->assertSee('20-hour warning')
+            ->assertSee($world['subject']->name)
+            ->assertDontSee('Review homework');
+
+        $this->assertSame('draft', $submitted->fresh()->status);
+    }
+
+    public function test_action_queue_empty_state_when_nothing_is_pending(): void
+    {
+        $world = $this->world();
+
+        $this->actingAs($world['users']['head_of_department'])
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertSee('All caught up')
+            ->assertDontSee('Review plan')
+            ->assertSee('QuickLog');
+    }
+
+    public function test_action_queue_preview_keeps_three_items_and_review_list_is_paginated(): void
+    {
+        $world = $this->world();
+
+        for ($i = 1; $i <= 16; $i++) {
+            $topic = Topic::create([
+                'scheme_of_work_id' => $world['scheme']->id,
+                'week_number' => 1,
+                'title' => 'Preview topic '.$i,
+                'learning_objectives' => ['Convert bases'],
+                'display_order' => $i + 1,
+                'status' => 'planned',
+            ]);
+            LessonPlan::create([
+                'topic_id' => $topic->id,
+                'teacher_id' => $world['users']['teacher']->id,
+                'school_class_id' => $world['class']->id,
+                'subject_id' => $world['subject']->id,
+                'objectives' => 'Convert bases',
+                'activities' => 'Teach',
+                'assessment' => 'Quiz',
+                'status' => 'submitted',
+                'submitted_at' => now()->subHours(16 - $i),
+                'due_at' => now()->addDay(),
+                'on_time' => true,
+            ]);
+        }
+
+        $this->actingAs($world['users']['head_of_department'])
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertSee('Preview topic 1')
+            ->assertSee('Preview topic 2')
+            ->assertSee('Preview topic 3')
+            ->assertDontSee('Preview topic 4')
+            ->assertSee('Review lesson plan')
+            ->assertSee('13 more on the review list');
+
+        $this->actingAs($world['users']['head_of_department'])
+            ->get(route('hod.reviews.lesson-plans', ['session_id' => $world['session']->id, 'term_id' => $world['term']->id]))
+            ->assertOk()
+            ->assertSee('Preview topic 1')
+            ->assertSee('Preview topic 15')
+            ->assertDontSee('Preview topic 16');
+
+        $this->actingAs($world['users']['head_of_department'])
+            ->get(route('hod.reviews.lesson-plans', [
+                'session_id' => $world['session']->id,
+                'term_id' => $world['term']->id,
+                'page' => 2,
+            ]))
+            ->assertOk()
+            ->assertSee('Preview topic 16');
+    }
+
+    public function test_hod_scheme_review_list_shows_submitted_scheme_and_teacher_is_forbidden(): void
+    {
+        $world = $this->world();
+
+        SchemeOfWork::create([
+            'subject_id' => $world['subject']->id,
+            'school_class_id' => $world['class']->id,
+            'academic_session_id' => $world['session']->id,
+            'term_id' => $world['term']->id,
+            'version' => 2,
+            'uploaded_by' => $world['users']['teacher']->id,
+            'submitted_by' => $world['users']['teacher']->id,
+            'submitted_at' => now()->subHours(2),
+            'status' => 'draft',
+        ]);
+
+        $this->actingAs($world['users']['head_of_department'])
+            ->get(route('hod.reviews.schemes', ['session_id' => $world['session']->id, 'term_id' => $world['term']->id]))
+            ->assertOk()
+            ->assertSee('Schemes of Work for review')
+            ->assertSee($world['subject']->name)
+            ->assertSee('Review scheme');
+
+        $this->actingAs($world['users']['teacher'])
+            ->get(route('hod.reviews.schemes'))
+            ->assertForbidden();
+
+        $this->actingAs($world['users']['teacher'])
+            ->get(route('hod.reviews.lesson-plans'))
+            ->assertForbidden();
     }
 }

@@ -78,6 +78,7 @@ class SchemeOfWorkWorkflowTest extends TestCase
             'code' => 'MTH',
             'status' => 'active',
         ]);
+        $class->offeredSubjects()->syncWithoutDetaching([$math->id]);
         $outside = Subject::create([
             'school_id' => $otherSchool->id,
             'name' => 'English',
@@ -110,6 +111,7 @@ class SchemeOfWorkWorkflowTest extends TestCase
             'academic_session_id' => $session->id,
             'status' => 'active',
         ]);
+        $this->assignSectionHod($school, $users['head_of_department'], $class, 'Basic School', [$math->id]);
 
         return compact('school', 'otherSchool', 'session', 'term', 'class', 'math', 'outside', 'users');
     }
@@ -136,12 +138,12 @@ class SchemeOfWorkWorkflowTest extends TestCase
         ];
     }
 
-    public function test_hod_can_create_clone_and_submit_but_cannot_approve_or_activate(): void
+    public function test_teacher_can_create_clone_and_submit_but_cannot_approve(): void
     {
         $world = $this->world();
-        $hod = $world['users']['head_of_department'];
+        $teacher = $world['users']['teacher'];
 
-        $this->actingAs($hod)
+        $this->actingAs($teacher)
             ->post(route('schemes.store'), $this->draftPayload($world))
             ->assertRedirect();
 
@@ -150,19 +152,18 @@ class SchemeOfWorkWorkflowTest extends TestCase
         $this->assertNull($draft->submitted_at);
         $this->assertSame(1, $draft->topics()->count());
 
-        $this->actingAs($hod)->post(route('schemes.submit', $draft))->assertRedirect();
+        $this->actingAs($teacher)->post(route('schemes.submit', $draft))->assertRedirect();
         $this->assertNotNull($draft->fresh()->submitted_at);
         $this->assertSame('draft', $draft->fresh()->status);
 
-        $this->actingAs($hod)->post(route('schemes.approve', $draft))->assertForbidden();
-        $this->actingAs($hod)->post(route('schemes.activate', $draft))->assertForbidden();
+        $this->actingAs($teacher)->post(route('schemes.approve', $draft))->assertForbidden();
     }
 
-    public function test_hod_cannot_create_outside_department_subjects(): void
+    public function test_teacher_cannot_create_unassigned_subjects(): void
     {
         $world = $this->world();
 
-        $this->actingAs($world['users']['head_of_department'])
+        $this->actingAs($world['users']['teacher'])
             ->from(route('schemes.create'))
             ->post(route('schemes.store'), $this->draftPayload($world, $world['outside']->id))
             ->assertRedirect(route('schemes.create'))
@@ -171,43 +172,36 @@ class SchemeOfWorkWorkflowTest extends TestCase
         $this->assertSame(0, SchemeOfWork::count());
     }
 
-    public function test_board_cannot_approve_before_hos_and_hos_alone_does_not_approve(): void
+    public function test_hos_and_board_cannot_approve_and_hod_approve_activates(): void
     {
         $world = $this->world();
+        $teacher = $world['users']['teacher'];
         $hod = $world['users']['head_of_department'];
-        $hos = $world['users']['head_of_school'];
-        $board = $world['users']['board'];
 
-        $this->actingAs($hod)->post(route('schemes.store'), $this->draftPayload($world) + ['_action' => 'submit']);
+        $this->actingAs($teacher)->post(route('schemes.store'), array_merge($this->draftPayload($world), ['_action' => 'submit']));
         $scheme = SchemeOfWork::first();
 
-        $this->actingAs($board)->post(route('schemes.approve', $scheme))->assertStatus(422);
+        $this->actingAs($world['users']['board'])->post(route('schemes.approve', $scheme))->assertForbidden();
+        $this->actingAs($world['users']['head_of_school'])->post(route('schemes.approve', $scheme))->assertForbidden();
         $this->assertSame('draft', $scheme->fresh()->status);
 
-        $this->actingAs($hos)->post(route('schemes.approve', $scheme))->assertRedirect();
-        $afterHos = $scheme->fresh();
-        $this->assertSame('draft', $afterHos->status);
-        $this->assertNotNull($afterHos->hos_approved_at);
-        $this->assertNull($afterHos->board_approved_at);
-
-        $this->actingAs($board)->post(route('schemes.approve', $scheme))->assertRedirect();
-        $approved = $scheme->fresh();
-        $this->assertSame('approved', $approved->status);
-        $this->assertNotNull($approved->board_approved_at);
-        $this->assertTrue($approved->approved_at->equalTo($approved->board_approved_at));
+        $this->actingAs($hod)->post(route('schemes.approve', $scheme))->assertRedirect();
+        $activated = $scheme->fresh();
+        $this->assertSame('active', $activated->status);
+        $this->assertSame($hod->id, $activated->approved_by);
+        $this->assertNull($activated->hos_approved_by);
     }
 
-    public function test_reject_from_submitted_or_approved_returns_draft_and_hod_can_resubmit(): void
+    public function test_reject_from_submitted_returns_draft_and_teacher_can_resubmit(): void
     {
         $world = $this->world();
+        $teacher = $world['users']['teacher'];
         $hod = $world['users']['head_of_department'];
-        $hos = $world['users']['head_of_school'];
-        $board = $world['users']['board'];
 
-        $this->actingAs($hod)->post(route('schemes.store'), $this->draftPayload($world) + ['_action' => 'submit']);
+        $this->actingAs($teacher)->post(route('schemes.store'), array_merge($this->draftPayload($world), ['_action' => 'submit']));
         $scheme = SchemeOfWork::first();
 
-        $this->actingAs($hos)
+        $this->actingAs($hod)
             ->from(route('schemes.show', $scheme))
             ->post(route('schemes.reject', $scheme), ['rejection_reason' => 'Add week 2'])
             ->assertRedirect();
@@ -218,30 +212,16 @@ class SchemeOfWorkWorkflowTest extends TestCase
         $this->assertSame('Add week 2', $rejected->rejection_reason);
         $this->assertNotNull($rejected->rejected_at);
 
-        $this->actingAs($hod)->post(route('schemes.submit', $rejected))->assertRedirect();
-        $this->actingAs($hos)->post(route('schemes.approve', $rejected))->assertRedirect();
-        $this->actingAs($board)->post(route('schemes.approve', $rejected))->assertRedirect();
-
-        $this->actingAs($board)
-            ->post(route('schemes.reject', $rejected), ['rejection_reason' => 'Board wants another week'])
-            ->assertRedirect();
-
-        $again = $rejected->fresh();
-        $this->assertSame('draft', $again->status);
-        $this->assertNull($again->hos_approved_by);
-        $this->assertNull($again->board_approved_by);
-        $this->assertSame('Board wants another week', $again->rejection_reason);
-
-        $this->actingAs($hod)->post(route('schemes.submit', $again))->assertRedirect();
-        $this->assertNotNull($again->fresh()->submitted_at);
+        $this->actingAs($teacher)->post(route('schemes.submit', $rejected))->assertRedirect();
+        $this->assertNotNull($rejected->fresh()->submitted_at);
     }
 
-    public function test_board_activate_archives_previous_and_clone_does_not_reactivate(): void
+    public function test_hod_approve_archives_previous_and_clone_does_not_reactivate(): void
     {
         $world = $this->world();
         $first = $this->activateScheme($world, 'Version one');
 
-        $this->actingAs($world['users']['head_of_department'])
+        $this->actingAs($world['users']['teacher'])
             ->post(route('schemes.clone', $first))
             ->assertRedirect();
 
@@ -252,10 +232,8 @@ class SchemeOfWorkWorkflowTest extends TestCase
         $this->assertSame('active', $first->fresh()->status);
         $this->assertNotSame($first->topics()->first()->id, $clone->topics()->first()->id);
 
-        $this->actingAs($world['users']['head_of_department'])->post(route('schemes.submit', $clone));
-        $this->actingAs($world['users']['head_of_school'])->post(route('schemes.approve', $clone));
-        $this->actingAs($world['users']['board'])->post(route('schemes.approve', $clone));
-        $this->actingAs($world['users']['board'])->post(route('schemes.activate', $clone))->assertRedirect();
+        $this->actingAs($world['users']['teacher'])->post(route('schemes.submit', $clone));
+        $this->actingAs($world['users']['head_of_department'])->post(route('schemes.approve', $clone))->assertRedirect();
 
         $this->assertSame('archived', $first->fresh()->status);
         $this->assertSame('active', $clone->fresh()->status);
@@ -278,21 +256,21 @@ class SchemeOfWorkWorkflowTest extends TestCase
         $this->actingAs($teacher)->delete(route('schemes.destroy', $scheme))->assertForbidden();
     }
 
-    public function test_hod_can_permanently_delete_erroneous_draft_but_not_active(): void
+    public function test_teacher_can_permanently_delete_erroneous_draft_but_not_active(): void
     {
         $world = $this->world();
-        $hod = $world['users']['head_of_department'];
+        $teacher = $world['users']['teacher'];
 
-        $this->actingAs($hod)->post(route('schemes.store'), $this->draftPayload($world));
+        $this->actingAs($teacher)->post(route('schemes.store'), $this->draftPayload($world));
         $draft = SchemeOfWork::first();
         $topicId = $draft->topics()->first()->id;
 
-        $this->actingAs($world['users']['teacher'])
+        $this->actingAs($world['users']['head_of_department'])
             ->delete(route('schemes.destroy', $draft))
             ->assertForbidden();
         $this->assertNotNull($draft->fresh());
 
-        $this->actingAs($hod)
+        $this->actingAs($teacher)
             ->from(route('schemes.index'))
             ->delete(route('schemes.destroy', $draft))
             ->assertRedirect(route('schemes.index'));
@@ -301,8 +279,73 @@ class SchemeOfWorkWorkflowTest extends TestCase
         $this->assertFalse(Topic::where('id', $topicId)->exists());
 
         $active = $this->activateScheme($world, 'Keep this baseline');
-        $this->actingAs($hod)->delete(route('schemes.destroy', $active))->assertStatus(422);
+        $this->actingAs($teacher)->delete(route('schemes.destroy', $active))->assertStatus(422);
         $this->assertSame('active', $active->fresh()->status);
+    }
+
+    public function test_teacher_clones_across_sessions_with_matching_terms_only(): void
+    {
+        $world = $this->world();
+        $source = $this->activateScheme($world, 'Source maths');
+        $destSession = AcademicSession::create([
+            'school_id' => $world['school']->id,
+            'name' => '2026/2027',
+            'start_date' => '2026-09-01',
+            'end_date' => '2027-07-31',
+            'is_current' => false,
+            'status' => 'upcoming',
+        ]);
+        $destFirst = Term::create([
+            'academic_session_id' => $destSession->id,
+            'name' => 'First Term',
+            'start_date' => '2026-09-01',
+            'end_date' => '2026-12-15',
+            'sequence' => 1,
+            'is_current' => false,
+            'status' => 'upcoming',
+        ]);
+        $destSecond = Term::create([
+            'academic_session_id' => $destSession->id,
+            'name' => 'Second Term',
+            'start_date' => '2027-01-07',
+            'end_date' => '2027-04-10',
+            'sequence' => 2,
+            'is_current' => false,
+            'status' => 'upcoming',
+        ]);
+        TeacherAssignment::create([
+            'teacher_id' => $world['users']['teacher']->id,
+            'school_class_id' => $world['class']->id,
+            'subject_id' => $world['math']->id,
+            'academic_session_id' => $destSession->id,
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($world['users']['teacher'])
+            ->from(route('schemes.clone-session', $source))
+            ->post(route('schemes.clone-session.store', $source), [
+                'academic_session_id' => $destSession->id,
+                'term_id' => $destSecond->id,
+            ])
+            ->assertRedirect()
+            ->assertSessionHasErrors('term_id');
+
+        $this->actingAs($world['users']['teacher'])
+            ->post(route('schemes.clone-session.store', $source), [
+                'academic_session_id' => $destSession->id,
+                'term_id' => $destFirst->id,
+            ])
+            ->assertRedirect();
+
+        $clone = SchemeOfWork::query()
+            ->where('academic_session_id', $destSession->id)
+            ->where('term_id', $destFirst->id)
+            ->first();
+        $this->assertNotNull($clone);
+        $this->assertSame('draft', $clone->status);
+        $this->assertNull($clone->submitted_at);
+        $this->assertSame($source->id, $clone->replaces_id);
+        $this->assertSame('active', $source->fresh()->status);
     }
 
     public function test_lesson_plan_create_requires_active_scheme_topic(): void
@@ -321,6 +364,16 @@ class SchemeOfWorkWorkflowTest extends TestCase
                 'assessment' => 'Exit ticket',
             ])
             ->assertStatus(422);
+
+        $this->actingAs($teacher)
+            ->from(route('coverage-logs.create'))
+            ->post(route('coverage-logs.store'), [
+                'topic_id' => $topic->id,
+                'workbook_reference' => 'WB 1',
+                'coverage_date' => now()->toDateString(),
+            ])
+            ->assertRedirect()
+            ->assertSessionHasErrors('topic_id');
     }
 
     /**
@@ -332,10 +385,9 @@ class SchemeOfWorkWorkflowTest extends TestCase
         $payload['topics'][0]['title'] = $title;
         $payload['_action'] = 'submit';
 
-        $this->actingAs($world['users']['head_of_department'])->post(route('schemes.store'), $payload);
+        $this->actingAs($world['users']['teacher'])->post(route('schemes.store'), $payload);
         $scheme = SchemeOfWork::query()->latest('id')->first();
-        $this->actingAs($world['users']['head_of_school'])->post(route('schemes.approve', $scheme));
-        $this->actingAs($world['users']['board'])->post(route('schemes.approve', $scheme));
+        $this->actingAs($world['users']['head_of_department'])->post(route('schemes.approve', $scheme));
 
         return $scheme->fresh(['topics']);
     }
@@ -345,9 +397,6 @@ class SchemeOfWorkWorkflowTest extends TestCase
      */
     protected function activateScheme(array $world, string $title): SchemeOfWork
     {
-        $scheme = $this->makeApprovedScheme($world, $title);
-        $this->actingAs($world['users']['board'])->post(route('schemes.activate', $scheme));
-
-        return $scheme->fresh(['topics']);
+        return $this->makeApprovedScheme($world, $title);
     }
 }

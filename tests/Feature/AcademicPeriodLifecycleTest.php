@@ -84,6 +84,13 @@ class AcademicPeriodLifecycleTest extends TestCase
 
         $class = SchoolClass::create(['school_id' => $school->id, 'name' => 'JSS 1A', 'level' => 'JSS', 'status' => 'active']);
         $subject = Subject::create(['school_id' => $school->id, 'name' => 'Mathematics', 'code' => 'MTH', 'status' => 'active']);
+        \App\Models\TeacherAssignment::create([
+            'teacher_id' => $users['teacher']->id,
+            'school_class_id' => $class->id,
+            'subject_id' => $subject->id,
+            'academic_session_id' => $session->id,
+            'status' => 'active',
+        ]);
         $scheme = SchemeOfWork::create([
             'subject_id' => $subject->id,
             'school_class_id' => $class->id,
@@ -104,7 +111,7 @@ class AcademicPeriodLifecycleTest extends TestCase
         return compact('school', 'session', 'terms', 'users', 'scheme');
     }
 
-    public function test_authorized_roles_can_create_future_session_and_terms(): void
+    public function test_head_of_school_cannot_create_or_activate_a_session(): void
     {
         $world = $this->world();
 
@@ -114,24 +121,13 @@ class AcademicPeriodLifecycleTest extends TestCase
                 'start_date' => '2026-09-01',
                 'end_date' => '2027-07-31',
             ])
-            ->assertRedirect();
-
-        $future = AcademicSession::where('name', '2026/2027')->first();
-        $this->assertFalse($future->is_current);
-        $this->assertSame('upcoming', $future->status);
-        $this->assertTrue($world['session']->fresh()->is_current);
+            ->assertForbidden();
 
         $this->actingAs($world['users']['board'])
-            ->post(route('academic-period.terms.store'), [
-                'academic_session_id' => $future->id,
-                'name' => 'First Term',
-                'start_date' => '2026-09-01',
-                'end_date' => '2026-12-15',
-                'sequence' => 1,
-            ])
-            ->assertRedirect();
+            ->post(route('academic-period.rollover'), ['target_session_id' => $world['session']->id])
+            ->assertForbidden();
 
-        $this->assertSame(1, $future->terms()->count());
+        $this->assertTrue($world['session']->fresh()->is_current);
         $this->assertSame(1, AcademicSession::where('school_id', $world['school']->id)->where('is_current', true)->count());
     }
 
@@ -345,7 +341,7 @@ class AcademicPeriodLifecycleTest extends TestCase
         $this->assertFalse($service->acceptsNewActivity($world['session']->fresh(), $world['terms'][1]->fresh()));
 
         try {
-            app(SchemeOfWorkService::class)->createDraft($world['users']['head_of_department'], [
+            app(SchemeOfWorkService::class)->createDraft($world['users']['teacher'], [
                 'academic_session_id' => $world['session']->id,
                 'term_id' => $world['terms'][1]->id,
                 'school_class_id' => $world['scheme']->school_class_id,

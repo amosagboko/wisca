@@ -99,7 +99,9 @@ class TopicCoverageLogController extends Controller
         $session = AcademicSession::currentForSchool($user->school_id);
         abort_unless($session, 403, 'No active academic session configured.');
 
-        $schemes = $curriculum->schemesForTeacher($user, $session->id);
+        $schemes = $curriculum->schemesForTeacher($user, $session->id)
+            ->filter(fn ($scheme) => $scheme->isActive())
+            ->values();
 
         $selectedTopic = null;
         if ($request->filled('topic')) {
@@ -137,7 +139,14 @@ class TopicCoverageLogController extends Controller
             abort(403);
         }
 
-        app(AcademicPeriodService::class)->assertAcceptsNewActivity($topic->schemeOfWork?->academicSession, $topic->schemeOfWork?->term);
+        $scheme = $topic->schemeOfWork;
+        if (! $scheme?->isActive()) {
+            return back()->withErrors([
+                'topic_id' => 'Coverage can only be logged against the Active scheme of work.',
+            ])->withInput();
+        }
+
+        app(AcademicPeriodService::class)->assertAcceptsNewActivity($scheme->academicSession, $scheme->term);
 
         if (! $topic->isLoggable()) {
             return back()->withErrors(['topic_id' => 'This topic already has coverage submitted or verified.'])->withInput();
@@ -149,8 +158,6 @@ class TopicCoverageLogController extends Controller
                 'topic_id' => 'An approved lesson plan is required before this topic can be logged as covered (AE-05).',
             ])->withInput();
         }
-
-        $scheme = $topic->schemeOfWork;
 
         TopicCoverageLog::create([
             'topic_id' => $topic->id,

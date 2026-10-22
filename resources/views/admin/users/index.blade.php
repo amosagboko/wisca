@@ -19,7 +19,7 @@
                         <th class="px-5 sm:px-6 py-3 font-semibold text-slate-600">Name</th>
                         <th class="px-5 py-3 font-semibold text-slate-600">Email</th>
                         <th class="px-5 py-3 font-semibold text-slate-600">Role</th>
-                        <th class="px-5 py-3 font-semibold text-slate-600">Department</th>
+                        <th class="px-5 py-3 font-semibold text-slate-600">School Section</th>
                         <th class="px-5 py-3 font-semibold text-slate-600">Status</th>
                         <th class="px-5 py-3 font-semibold text-slate-600 text-right">Actions</th>
                     </tr>
@@ -35,7 +35,7 @@
                             </td>
                             <td class="px-5 py-3 text-slate-600">{{ $user->email }}</td>
                             <td class="px-5 py-3">{{ $roles[$user->roles->first()?->name] ?? $user->roles->first()?->name ?? '—' }}</td>
-                            <td class="px-5 py-3 text-slate-600">{{ $user->department?->name ?: '—' }}</td>
+                            <td class="px-5 py-3 text-slate-600">{{ $user->ledSchoolSections->pluck('name')->join(', ') ?: '—' }}</td>
                             <td class="px-5 py-3 capitalize">{{ $user->status }}</td>
                             <td class="px-5 py-3 text-right space-x-2">
                                 <a href="{{ route('admin.users.edit', $user) }}" class="text-xs font-semibold uppercase tracking-wide text-[#0f2d4a] hover:underline">Edit</a>

@@ -19,58 +19,47 @@ class AcademicPeriodController extends Controller
         $user = auth()->user();
         abort_unless($user->canManageAcademicPeriod(), 403);
 
-        $sessions = AcademicSession::where('school_id', $user->school_id)
+        $currentSession = $this->periods->currentSession((int) $user->school_id);
+        if ($currentSession) {
+            $currentSession->load(['terms' => fn ($q) => $q->orderBy('sequence')]);
+        }
+
+        $closedSessions = AcademicSession::where('school_id', $user->school_id)
+            ->where('status', 'closed')
+            ->when($currentSession, fn ($q) => $q->where('id', '!=', $currentSession->id))
             ->with(['terms' => fn ($q) => $q->orderBy('sequence')])
             ->orderByDesc('start_date')
-            ->get();
+            ->paginate(1, ['*'], 'sessions_page')
+            ->withQueryString()
+            ->fragment('sessions');
 
-        $currentSession = $this->periods->currentSession((int) $user->school_id);
         $currentTerm = $currentSession ? $this->periods->currentTerm($currentSession->id) : null;
         $nextTerm = $currentTerm ? $this->periods->nextTerm($currentTerm) : null;
-        $isLastTerm = $currentSession && $currentTerm
-            && $this->periods->lastTerm($currentSession)?->is($currentTerm);
-        $canActivate = $user->canActivateAcademicPeriod();
-        $canRollover = (bool) ($canActivate && $currentSession && $currentTerm);
-
-        $targetSessions = $sessions->filter(fn (AcademicSession $session) => ! $session->is_current && $session->status !== 'closed' && $session->terms->isNotEmpty());
+        $nextAvailable = $currentSession ? $this->periods->nextAvailableTerm($currentSession) : null;
 
         $transitions = AcademicPeriodTransition::where('school_id', $user->school_id)
             ->with(['performer', 'previousSession', 'previousTerm', 'newSession', 'newTerm'])
             ->latest('performed_at')
-            ->limit(10)
-            ->get();
+            ->paginate(3, ['*'], 'transitions_page')
+            ->withQueryString()
+            ->fragment('transitions');
 
         return view('academic-period.show', [
-            'sessions' => $sessions,
+            'closedSessions' => $closedSessions,
             'currentSession' => $currentSession,
             'currentTerm' => $currentTerm,
             'nextTerm' => $nextTerm,
-            'canRollover' => $canRollover,
-            'canActivateAnytime' => $canActivate,
-            'isLastTerm' => (bool) $isLastTerm,
-            'targetSessions' => $targetSessions,
+            'nextAvailable' => $nextAvailable,
+            'canStartYear' => $user->isAdmin(),
             'transitions' => $transitions,
         ]);
     }
 
     public function storeSession(Request $request): RedirectResponse
     {
-        abort_unless(auth()->user()->canManageAcademicPeriod(), 403);
+        abort_unless(auth()->user()->canActivateAcademicPeriod(), 403);
 
-        $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'start_date' => ['required', 'date'],
-            'end_date' => ['required', 'date', 'after_or_equal:start_date'],
-        ]);
-
-        AcademicSession::create([
-            ...$validated,
-            'school_id' => auth()->user()->school_id,
-            'status' => 'upcoming',
-            'is_current' => false,
-        ]);
-
-        return back()->with('success', 'Future academic session created. Add its First Term, then activate it when the school is ready.');
+        return redirect()->route('admin.sessions.create');
     }
 
     public function storeTerm(Request $request): RedirectResponse
@@ -79,33 +68,23 @@ class AcademicPeriodController extends Controller
 
         $validated = $request->validate([
             'academic_session_id' => ['required', 'exists:academic_sessions,id'],
-            'name' => ['required', 'string', 'max:255'],
+            'sequence' => ['required', 'integer', 'in:1,2,3'],
             'start_date' => ['required', 'date'],
             'end_date' => ['required', 'date', 'after_or_equal:start_date'],
-            'sequence' => ['nullable', 'integer', 'min:1', 'max:12'],
         ]);
 
         $session = AcademicSession::where('id', $validated['academic_session_id'])
             ->where('school_id', auth()->user()->school_id)
             ->firstOrFail();
 
-        $sequence = $validated['sequence'] ?? ((int) $session->terms()->max('sequence') + 1);
+        $this->periods->createUpcomingTerm(
+            $session,
+            (int) $validated['sequence'],
+            $validated['start_date'],
+            $validated['end_date'],
+        );
 
-        if (Term::where('academic_session_id', $session->id)->where('sequence', $sequence)->exists()) {
-            return back()->withErrors(['sequence' => 'That sequence is already used in this academic session.']);
-        }
-
-        Term::create([
-            'academic_session_id' => $session->id,
-            'name' => $validated['name'],
-            'start_date' => $validated['start_date'],
-            'end_date' => $validated['end_date'],
-            'sequence' => max(1, $sequence),
-            'status' => 'upcoming',
-            'is_current' => false,
-        ]);
-
-        return back()->with('success', 'Term configured on '.$session->name.'.');
+        return back()->with('success', $this->periods->termLabel((int) $validated['sequence']).' configured on '.$session->name.'.');
     }
 
     public function transition(Request $request): RedirectResponse

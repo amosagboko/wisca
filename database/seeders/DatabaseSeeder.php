@@ -10,6 +10,7 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             WiscaSeeder::class,
+            DemoStaffResponsibilitySeeder::class,
             DemoExamResultsSeeder::class,
             DemoAtRiskSeeder::class,
             DemoReadingSeeder::class,

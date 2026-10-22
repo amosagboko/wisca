@@ -116,6 +116,7 @@ class WiscaNavigation
             $route === 'admin.sessions.create' => 'Create / activate session',
             str_starts_with($route ?? '', 'admin.sessions.') => 'Academic Sessions',
             str_starts_with($route ?? '', 'admin.terms.') => 'Terms',
+            str_starts_with($route ?? '', 'admin.school-sections.') => 'School Sections',
             str_starts_with($route ?? '', 'admin.classes.') => 'Classes',
             str_starts_with($route ?? '', 'admin.departments.') => 'Departments',
             str_starts_with($route ?? '', 'admin.subjects.') => 'Subjects',
@@ -127,6 +128,8 @@ class WiscaNavigation
             str_starts_with($route ?? '', 'curriculum-coverage.') => 'Curriculum Coverage',
             str_starts_with($route ?? '', 'catch-ups.') => 'Curriculum Coverage',
             $route === 'coverage-logs.create' => 'Log Coverage',
+            str_starts_with($route ?? '', 'hod.reviews.schemes') => 'Review schemes',
+            str_starts_with($route ?? '', 'hod.reviews.lesson-plans') => 'Review lesson plans',
             str_starts_with($route ?? '', 'lesson-plans.') => 'Lesson Plan/Note Submission & Approval',
             str_starts_with($route ?? '', 'homework.') => 'Homework/Class Work Completion Rate',
             str_starts_with($route ?? '', 'attendance.') => 'Learner Attendance Rate',
@@ -300,6 +303,9 @@ class WiscaNavigation
             if ($user->isHoS() || $user->isAdmin()) {
                 $items[] = ['route' => 'planning-policy.edit', 'active' => ['planning-policy.*'], 'label' => 'Planning Policy', 'icon' => 'chart'];
             }
+            if ($user->isHoS()) {
+                $items[] = ['route' => 'admin.assignments.index', 'active' => ['admin.assignments.*'], 'label' => 'Teacher Assignments', 'icon' => 'list'];
+            }
 
             return [
                 'label' => 'Strategy',
@@ -308,7 +314,7 @@ class WiscaNavigation
         }
 
         $label = match (true) {
-            $user->isHoD() => 'Verification Queue',
+            $user->isHoD() => 'Overview',
             $user->isTeacher() => 'My Week',
             $user->isAdminOfficer() => 'Attendance Week',
             $user->isLearningSupport() => 'At-Risk Caseload',
@@ -319,8 +325,11 @@ class WiscaNavigation
             ['route' => 'dashboard', 'active' => ['dashboard'], 'label' => $label, 'icon' => 'dashboard'],
         ];
 
-        if ($user->isHoD()) {
+        if ($user->isHoD() || $user->isTeacher()) {
             $items[] = ['route' => 'schemes.index', 'active' => ['schemes.*'], 'label' => 'Schemes of Work', 'icon' => 'document'];
+        }
+
+        if ($user->isHoD()) {
             $items[] = ['route' => 'curriculum-coverage.report', 'active' => ['curriculum-coverage.*', 'catch-ups.*'], 'label' => 'Curriculum Coverage', 'icon' => 'chart'];
         }
 
@@ -367,12 +376,12 @@ class WiscaNavigation
                     ['route' => 'planning-policy.edit', 'active' => ['planning-policy.*'], 'label' => 'Planning Policy', 'icon' => 'chart'],
                     ['route' => 'curriculum-coverage.report', 'active' => ['curriculum-coverage.*', 'catch-ups.*'], 'label' => 'Curriculum Coverage', 'icon' => 'chart'],
                     ['route' => 'admin.sessions.index', 'active' => ['admin.sessions.*'], 'label' => 'Academic Sessions', 'icon' => 'calendar'],
-                    ['route' => 'admin.terms.index', 'active' => ['admin.terms.*'], 'label' => 'Terms', 'icon' => 'calendar'],
                 ],
             ],
             [
                 'label' => 'School Structure',
                 'items' => [
+                    ['route' => 'admin.school-sections.index', 'active' => ['admin.school-sections.*'], 'label' => 'School Sections', 'icon' => 'building'],
                     ['route' => 'admin.classes.index', 'active' => ['admin.classes.*'], 'label' => 'Classes', 'icon' => 'building'],
                     ['route' => 'admin.departments.index', 'active' => ['admin.departments.*'], 'label' => 'Departments', 'icon' => 'building'],
                     ['route' => 'admin.subjects.index', 'active' => ['admin.subjects.*'], 'label' => 'Subjects', 'icon' => 'book'],

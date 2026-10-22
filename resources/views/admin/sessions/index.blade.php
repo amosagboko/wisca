@@ -50,12 +50,16 @@
                                             <button type="submit" class="text-xs font-semibold uppercase tracking-wide text-emerald-700 hover:underline">Activate</button>
                                         </form>
                                     @endif
+                                @endunless
+                                @if ($session->is_current || $session->status === 'closed')
+                                    <span class="text-xs font-semibold uppercase tracking-wide text-slate-300 cursor-not-allowed" title="Current and closed sessions cannot be deleted. View or edit them only.">Delete</span>
+                                @else
                                     <form method="POST" action="{{ route('admin.sessions.destroy', $session) }}" class="inline" onsubmit="return confirm('Delete this session?')">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="text-xs font-semibold uppercase tracking-wide text-red-600 hover:underline">Delete</button>
                                     </form>
-                                @endunless
+                                @endif
                             </td>
                         </tr>
                     @empty

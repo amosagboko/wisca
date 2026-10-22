@@ -94,21 +94,28 @@ class CurriculumDashboardService
             ->get();
 
         $examTerm = $this->teacherExamSummary($teacher, $session, $term);
+        $coverageSummary = $this->teacherCoverageSummary($schemes);
+        $pipeline = $this->schemesForTeacherPipeline($teacher, $session->id, $term?->id);
         $week = [
             'term' => $term,
             'week_number' => $weekNumber,
             'schemes' => $schemes,
+            'scheme_pipeline' => $pipeline,
             'assignments' => $assignments,
             'homework_logs' => $homeworkWeekLogs,
             'attendance_logs' => $attendanceWeekLogs,
             'exam_term' => $examTerm,
             'at_risk' => $this->teacherAtRiskSummary($teacher, $session, $term),
+            'this_week_topics' => $thisWeekTopics,
         ];
 
         return [
             'term' => $term,
             'week_number' => $weekNumber,
+            'max_week' => $maxWeek,
             'schemes' => $schemes,
+            'scheme_pipeline' => $pipeline,
+            'assignments' => $assignments,
             'tasks' => $this->tasks->compose($teacher, $session, $week),
             'this_week_topics' => $thisWeekTopics,
             'remaining_topics' => $schemes->flatMap(function (SchemeOfWork $scheme) {
@@ -128,6 +135,7 @@ class CurriculumDashboardService
                 'covered' => $totals['covered'],
                 'rate' => $rate,
             ],
+            'coverage_summary' => $coverageSummary,
             'behind' => $rate < self::RED_FLAG_RATE,
             'logs' => $logs,
             'homework_logs' => $homeworkWeekLogs,
@@ -175,7 +183,9 @@ class CurriculumDashboardService
         $planQuery = $this->pendingLessonPlanQuery($hod, $session, $termId, $week, $teacherId, $classId, $subjectId);
         $coverageQuery = $this->pendingCoverageQuery($hod, $session, $termId, $week, $teacherId, $classId, $subjectId);
 
+        $schemeQuery = $this->pendingSchemeQuery($hod, $session, $termId, $teacherId, $classId, $subjectId);
         $pendingPlanTotal = (clone $planQuery)->count();
+        $pendingSchemeTotal = (clone $schemeQuery)->count();
         $pendingCoverageTotal = (clone $coverageQuery)->count();
 
         $pendingPlans = (clone $planQuery)
@@ -191,15 +201,21 @@ class CurriculumDashboardService
             ->withQueryString();
 
         $pendingPlanItems = (clone $planQuery)
-            ->with(['topic', 'teacher', 'schoolClass', 'subject'])
-            ->latest()
-            ->limit(self::REVIEW_FEED_CAP)
+            ->with(['topic', 'teacher', 'schoolClass.schoolSection', 'subject'])
+            ->orderBy('submitted_at')
+            ->limit(HodApprovalQueue::PREVIEW_LIMIT)
             ->get();
 
         $pendingCoverageItems = (clone $coverageQuery)
             ->with(['topic', 'teacher', 'schoolClass', 'subject'])
             ->latest()
             ->limit(self::REVIEW_FEED_CAP)
+            ->get();
+
+        $pendingSchemes = (clone $schemeQuery)
+            ->with(['subject', 'schoolClass.schoolSection', 'submittedBy', 'uploadedBy', 'term'])
+            ->orderBy('submitted_at')
+            ->limit(HodApprovalQueue::PREVIEW_LIMIT)
             ->get();
 
         $schemes = SchemeOfWork::where('academic_session_id', $session->id)
@@ -309,6 +325,56 @@ class CurriculumDashboardService
         $classes = $assignments->pluck('schoolClass')->filter()->unique('id')->sortBy('name')->values();
         $subjects = $assignments->pluck('subject')->filter()->unique('id')->sortBy('name')->values();
 
+        $hod->loadMissing('ledSchoolSections');
+        $hodSections = $hod->ledSchoolSections
+            ->where('school_id', $schoolId)
+            ->sortBy('name')
+            ->values();
+        $hodSectionLabel = $hodSections->pluck('name')->filter()->implode(', ') ?: null;
+        $coverageExpected = (int) $coverageRows->sum('total');
+        $coverageVerified = (int) $coverageRows->sum('covered');
+        $pulseWeek = $term ? $this->period->weekNumber($term, $maxWeek) : 1;
+
+        $classIdList = $classId ? [$classId] : ($classIds ?? []);
+        $recentCatchUps = \App\Models\TopicCatchUpPlan::query()
+            ->where('status', \App\Models\TopicCatchUpPlan::STATUS_ADDRESSED)
+            ->whereHas('topic.schemeOfWork', function (Builder $q) use ($session, $termId, $classIdList) {
+                $q->where('academic_session_id', $session->id);
+                if ($termId) {
+                    $q->where('term_id', $termId);
+                }
+                if ($classIdList !== []) {
+                    $q->whereIn('school_class_id', $classIdList);
+                }
+            })
+            ->with('topic')
+            ->latest('addressed_at')
+            ->limit(5)
+            ->get();
+        $recentResolvedAtRisk = \App\Models\AtRiskLearner::query()
+            ->where('status', 'resolved')
+            ->where('academic_session_id', $session->id)
+            ->when($termId, fn ($q) => $q->where('term_id', $termId))
+            ->when($classIdList !== [], fn ($q) => $q->whereIn('school_class_id', $classIdList))
+            ->with('learner')
+            ->latest('resolved_at')
+            ->limit(5)
+            ->get();
+        $recentVerifiedCoverage = TopicCoverageLog::query()
+            ->where('status', 'verified')
+            ->whereHas('schoolClass', fn (Builder $q) => $q->where('school_id', $schoolId))
+            ->whereHas('topic.schemeOfWork', function (Builder $q) use ($session, $termId) {
+                $q->where('academic_session_id', $session->id);
+                if ($termId) {
+                    $q->where('term_id', $termId);
+                }
+            })
+            ->when($classIdList !== [], fn ($q) => $q->whereIn('school_class_id', $classIdList))
+            ->with('topic')
+            ->latest('verified_at')
+            ->limit(5)
+            ->get();
+
         $planPage = collect($pendingPlans->items());
         $coveragePage = collect($pending->items());
 
@@ -319,6 +385,8 @@ class CurriculumDashboardService
             'pending_coverage_total' => $pendingCoverageTotal,
             'pending_plan_items' => $pendingPlanItems,
             'pending_coverage_items' => $pendingCoverageItems,
+            'pending_schemes' => $pendingSchemes,
+            'pending_scheme_total' => $pendingSchemeTotal,
             'pending_by_teacher' => $coveragePage->groupBy('teacher_id'),
             'pending_by_class' => $coveragePage->sortBy(fn ($log) => $log->schoolClass->name)->groupBy('school_class_id'),
             'plans_by_teacher' => $planPage->groupBy('teacher_id'),
@@ -344,7 +412,21 @@ class CurriculumDashboardService
             'exam_sittings' => $examSittings,
             'session_id' => $session->id,
             'hod_department' => $hod->department,
+            'hod_sections' => $hodSections,
+            'hod_section_label' => $hodSectionLabel,
+            'coverage_summary' => [
+                'expected' => $coverageExpected,
+                'verified' => $coverageVerified,
+                'rate' => $coverageExpected === 0 ? 0.0 : round($coverageVerified / $coverageExpected, 4),
+                'flagged' => $coverageRows->where('flagged', true)->count(),
+                'outstanding_verification' => $pendingCoverageTotal,
+                'catch_up' => $catchUpNeededTotal,
+            ],
             'max_week' => $maxWeek,
+            'pulse_week' => $pulseWeek,
+            'recent_catch_ups' => $recentCatchUps,
+            'recent_resolved_at_risk' => $recentResolvedAtRisk,
+            'recent_verified_coverage' => $recentVerifiedCoverage,
             'inbox' => [
                 'teachers' => $teachers,
                 'classes' => $classes,
@@ -354,7 +436,29 @@ class CurriculumDashboardService
         ];
     }
 
-    protected function pendingLessonPlanQuery(
+    public function pendingSchemeQuery(
+        User $hod,
+        AcademicSession $session,
+        int $termId,
+        int $teacherId,
+        int $classId,
+        int $subjectId,
+    ): Builder {
+        return SchemeOfWork::query()
+            ->where('status', 'draft')
+            ->whereNotNull('submitted_at')
+            ->where('academic_session_id', $session->id)
+            ->whereHas('schoolClass', fn (Builder $q) => $q->where('school_id', $hod->school_id))
+            ->when($termId, fn ($q) => $q->where('term_id', $termId))
+            ->when($classId, fn ($q) => $q->where('school_class_id', $classId))
+            ->when($subjectId, fn ($q) => $q->where('subject_id', $subjectId))
+            ->when($teacherId, fn ($q) => $q->where(function (Builder $inner) use ($teacherId) {
+                $inner->where('submitted_by', $teacherId)->orWhere('uploaded_by', $teacherId);
+            }))
+            ->tap(fn (Builder $q) => $this->scope->constrainByClass($q, $hod));
+    }
+
+    public function pendingLessonPlanQuery(
         User $hod,
         AcademicSession $session,
         int $termId,
@@ -500,6 +604,58 @@ class CurriculumDashboardService
         ];
     }
 
+    /**
+     * @return array{expected: int, verified: int, delivered: int, planned: int, rate: float}
+     */
+    protected function teacherCoverageSummary(Collection $schemes): array
+    {
+        $topics = $schemes->flatMap->topics;
+        $expected = $topics->count();
+        $verified = $topics->filter(function (Topic $topic) {
+            return $topic->latestCoverageLog?->status === 'verified'
+                || $topic->status === 'covered';
+        })->count();
+        $delivered = $topics->filter(function (Topic $topic) {
+            return in_array($topic->latestCoverageLog?->status, ['submitted', 'verified'], true)
+                || $topic->status === 'covered';
+        })->count();
+        $planned = $topics->filter(fn (Topic $topic) => $topic->hasApprovedLessonPlan())->count();
+
+        return [
+            'expected' => $expected,
+            'verified' => $verified,
+            'delivered' => $delivered,
+            'planned' => $planned,
+            'rate' => $expected === 0 ? 0.0 : round($verified / $expected, 4),
+        ];
+    }
+
+    public function schemesForTeacherPipeline(User $teacher, int $sessionId, ?int $termId = null): Collection
+    {
+        $assignments = TeacherAssignment::where('teacher_id', $teacher->id)
+            ->where('academic_session_id', $sessionId)
+            ->where('status', 'active')
+            ->get();
+
+        if ($assignments->isEmpty()) {
+            return collect();
+        }
+
+        return SchemeOfWork::query()
+            ->where('academic_session_id', $sessionId)
+            ->when($termId, fn ($q) => $q->where('term_id', $termId))
+            ->where(function (Builder $query) use ($assignments) {
+                foreach ($assignments as $assignment) {
+                    $query->orWhere(function (Builder $inner) use ($assignment) {
+                        $inner->where('school_class_id', $assignment->school_class_id)
+                            ->where('subject_id', $assignment->subject_id);
+                    });
+                }
+            })
+            ->with(['subject', 'schoolClass'])
+            ->get();
+    }
+
     public function schemesForTeacher(User $teacher, int $sessionId): Collection
     {
         $assignments = TeacherAssignment::where('teacher_id', $teacher->id)
@@ -537,6 +693,20 @@ class CurriculumDashboardService
         return $this->schemesForTeacher($teacher, $sessionId)
             ->filter(fn (SchemeOfWork $scheme) => $scheme->isActive())
             ->values();
+    }
+
+    public function teacherCanPlanFromScheme(User $teacher, SchemeOfWork $scheme, int $sessionId): bool
+    {
+        if (! $teacher->isTeacher() || ! $scheme->isActive() || (int) $scheme->academic_session_id !== $sessionId) {
+            return false;
+        }
+
+        return TeacherAssignment::where('teacher_id', $teacher->id)
+            ->where('academic_session_id', $sessionId)
+            ->where('school_class_id', $scheme->school_class_id)
+            ->where('subject_id', $scheme->subject_id)
+            ->where('status', 'active')
+            ->exists();
     }
 
     public function teacherOwnsTopic(User $teacher, Topic $topic, int $sessionId): bool

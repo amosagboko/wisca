@@ -134,6 +134,17 @@ class SchemeOfWorkBulkUpload
             ]);
         }
 
+        $weeks = [];
+        foreach ($topics as $topic) {
+            $week = $topic['week_number'];
+            if (isset($weeks[$week])) {
+                throw ValidationException::withMessages([
+                    'bulk_template' => "Week {$week} appears more than once. Each week number must be unique.",
+                ]);
+            }
+            $weeks[$week] = true;
+        }
+
         return $topics;
     }
 

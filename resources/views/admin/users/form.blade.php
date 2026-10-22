@@ -1,6 +1,7 @@
 @php
     $isEdit = $user->exists;
     $currentRole = old('role', $user->roles->first()?->name);
+    $currentSectionId = old('school_section_id', $user->exists ? $user->ledSchoolSections->first()?->id : null);
 @endphp
 
 <x-portal-layout :title="$isEdit ? 'Edit Staff' : 'Add Staff'">
@@ -65,15 +66,15 @@
             </div>
 
             <div x-cloak x-show="role === 'head_of_department'">
-                <x-input-label for="department_id" value="Department" />
-                <select id="department_id" name="department_id" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-                    <option value="">Select department...</option>
-                    @foreach ($departments ?? [] as $department)
-                        <option value="{{ $department->id }}" @selected((int) old('department_id', $user->department_id) === (int) $department->id)>{{ $department->name }}</option>
+                <x-input-label for="school_section_id" value="Select School Section" />
+                <select id="school_section_id" name="school_section_id" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    <option value="">Select school section...</option>
+                    @foreach ($sections ?? [] as $section)
+                        <option value="{{ $section->id }}" @selected((int) $currentSectionId === (int) $section->id)>{{ $section->name }}</option>
                     @endforeach
                 </select>
-                <x-input-error :messages="$errors->get('department_id')" class="mt-2" />
-                <p class="mt-1 text-xs text-slate-500">This HOD only sees and approves work for subjects in this department.</p>
+                <x-input-error :messages="$errors->get('school_section_id')" class="mt-2" />
+                <p class="mt-1 text-xs text-slate-500">This HOD reviews schemes of work and lesson plans for classes in this section. If the section already has a HOD, they will be replaced.</p>
             </div>
 
             <div>

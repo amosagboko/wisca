@@ -7,8 +7,10 @@
         <x-slot:actions>
             <form method="GET" class="flex items-end gap-2">
                 <div>
-                    <x-input-label for="week" value="Week" />
-                    <select id="week" name="week" class="mt-1 rounded-md border-gray-300 text-sm" onchange="this.form.submit()">
+                    <label for="week" class="block text-xs font-semibold uppercase tracking-wide text-slate-200">Week</label>
+                    <select id="week" name="week"
+                            class="mt-1 block w-48 rounded-md border-slate-300 bg-white py-2 pl-3 pr-10 text-sm font-medium text-slate-800 shadow-sm focus:border-sky-300 focus:ring-sky-300"
+                            onchange="this.form.submit()">
                         @for ($n = 1; $n <= $maxWeek; $n++)
                             <option value="{{ $n }}" @selected($n === (int) $week)>Week {{ $n }}</option>
                         @endfor

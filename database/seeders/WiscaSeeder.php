@@ -10,6 +10,7 @@ use App\Models\KpiPeriodicData;
 use App\Models\Pillar;
 use App\Models\School;
 use App\Models\SchoolClass;
+use App\Models\SchoolSection;
 use App\Models\SchemeOfWork;
 use App\Models\Subject;
 use App\Models\Term;
@@ -112,6 +113,19 @@ class WiscaSeeder extends Seeder
         $teacher = $createdUsers['teacher'];
         $hod = $createdUsers['head_of_department'];
 
+        SchoolSection::create([
+            'school_id' => $school->id,
+            'name' => 'EYFS',
+            'status' => 'active',
+        ]);
+        $basic = SchoolSection::create([
+            'school_id' => $school->id,
+            'name' => 'Basic School',
+            'status' => 'active',
+            'hod_id' => $hod->id,
+        ]);
+        $jss1a->update(['school_section_id' => $basic->id]);
+
         $jss1a->offeredSubjects()->syncWithoutDetaching([$math->id]);
         $jss1a->subjects()->attach($math->id, [
             'teacher_id' => $teacher->id,
@@ -157,7 +171,7 @@ class WiscaSeeder extends Seeder
             'academic_session_id' => $session->id,
             'term_id' => $term->id,
             'version' => 1,
-            'uploaded_by' => $hod->id,
+            'uploaded_by' => $teacher->id,
             'status' => 'active',
             'submitted_by' => $hod->id,
             'submitted_at' => $approvedAt,

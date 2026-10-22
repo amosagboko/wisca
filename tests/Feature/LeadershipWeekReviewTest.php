@@ -106,10 +106,17 @@ class LeadershipWeekReviewTest extends TestCase
         $subject = Subject::create(['school_id' => $school->id, 'name' => 'Mathematics', 'code' => 'MTH'.$token, 'status' => 'active']);
 
         $users = [];
-        foreach (['board', 'head_of_school', 'assistant_head_secondary', 'head_of_department', 'teacher'] as $role) {
+        $names = [
+            'board' => 'Board Member',
+            'head_of_school' => 'Head of School',
+            'assistant_head_secondary' => 'Assistant Head',
+            'head_of_department' => 'Pat Hod',
+            'teacher' => 'Sam Teacher',
+        ];
+        foreach ($names as $role => $name) {
             $user = User::create([
                 'school_id' => $school->id,
-                'name' => $role,
+                'name' => $name,
                 'email' => $role.'.'.$token.'@lead.test',
                 'password' => 'password',
                 'status' => 'active',
@@ -117,6 +124,8 @@ class LeadershipWeekReviewTest extends TestCase
             $user->assignRole($role);
             $users[$role] = $user;
         }
+
+        $this->assignSectionHod($school, $users['head_of_department'], $class, 'Basic School '.$token, [$subject->id]);
 
         TeacherAssignment::create([
             'teacher_id' => $users['teacher']->id,
@@ -212,13 +221,23 @@ class LeadershipWeekReviewTest extends TestCase
         $this->actingAs($world['users']['head_of_school'])
             ->get(route('dashboard'))
             ->assertOk()
-            ->assertSee('Operational exceptions')
+            ->assertSee('Accountability · who is behind')
+            ->assertSee('Who is behind')
             ->assertSee('Academic period')
+            ->assertSee('HODs')
+            ->assertSee('Teachers')
+            ->assertSee('Pat Hod')
+            ->assertDontSee('Sam Teacher')
             ->assertSee('Waiting on HOD')
-            ->assertSee('Lesson plans awaiting HOD')
-            ->assertSee('Homework awaiting HOD')
             ->assertSee('Record week review')
-            ->assertSee('does not change AE KPI formulas');
+            ->assertDontSee('Operational exceptions')
+            ->assertDontSee('Lesson plans awaiting HOD');
+
+        $this->actingAs($world['users']['head_of_school'])
+            ->get(route('dashboard', ['behind' => 'teachers']))
+            ->assertOk()
+            ->assertSee('Sam Teacher')
+            ->assertDontSee('Pat Hod');
     }
 
     public function test_board_sees_exceptions_but_cannot_record_week_review(): void
@@ -229,9 +248,17 @@ class LeadershipWeekReviewTest extends TestCase
         $this->actingAs($world['users']['board'])
             ->get(route('dashboard'))
             ->assertOk()
-            ->assertSee('Lesson plans awaiting HOD')
+            ->assertSee('Who is behind')
+            ->assertSee('HODs')
+            ->assertSee('Teachers')
+            ->assertSee('Pat Hod')
             ->assertDontSee('Record week review')
             ->assertDontSee('Update week review');
+
+        $this->actingAs($world['users']['board'])
+            ->get(route('dashboard', ['behind' => 'teachers']))
+            ->assertOk()
+            ->assertSee('Sam Teacher');
 
         $this->actingAs($world['users']['board'])
             ->from(route('dashboard'))
@@ -311,7 +338,7 @@ class LeadershipWeekReviewTest extends TestCase
             ->assertOk()
             ->assertSee('Update week review')
             ->assertSee('Seen HOD backlog.')
-            ->assertSee('Identified learners without a plan');
+            ->assertSee('Pat Hod');
     }
 
     public function test_assistant_head_can_update_week_review(): void

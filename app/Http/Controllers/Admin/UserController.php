@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Models\Department;
+use App\Models\SchoolSection;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -16,7 +16,7 @@ class UserController extends AdminController
     {
         $users = User::where('school_id', $this->schoolId())
             ->whereDoesntHave('roles', fn ($q) => $q->where('name', 'admin'))
-            ->with(['roles', 'department'])
+            ->with(['roles', 'ledSchoolSections'])
             ->orderBy('name')
             ->get();
 
@@ -31,7 +31,7 @@ class UserController extends AdminController
         return view('admin.users.form', [
             'user' => new User(['status' => 'active']),
             'roles' => $this->assignableRoles(),
-            'departments' => $this->schoolDepartments(),
+            'sections' => $this->schoolSections(),
         ]);
     }
 
@@ -41,7 +41,6 @@ class UserController extends AdminController
 
         $user = User::create([
             'school_id' => $this->schoolId(),
-            'department_id' => $this->departmentIdForRole($validated['role'], $validated['department_id'] ?? null),
             'name' => $validated['name'],
             'email' => $validated['email'],
             'phone' => $validated['phone'] ?? null,
@@ -50,6 +49,7 @@ class UserController extends AdminController
         ]);
 
         $user->syncRoles([$validated['role']]);
+        $this->syncHodSection($user, $validated['role'], $validated['school_section_id'] ?? null);
 
         if ($request->hasFile('passport')) {
             $user->storePassport($request->file('passport'));
@@ -63,9 +63,9 @@ class UserController extends AdminController
         $this->ensureSchoolUser($user);
 
         return view('admin.users.form', [
-            'user' => $user->load('roles'),
+            'user' => $user->load(['roles', 'ledSchoolSections']),
             'roles' => $this->assignableRoles(),
-            'departments' => $this->schoolDepartments(),
+            'sections' => $this->schoolSections(),
         ]);
     }
 
@@ -80,7 +80,6 @@ class UserController extends AdminController
             'email' => $validated['email'],
             'phone' => $validated['phone'] ?? null,
             'status' => $validated['status'],
-            'department_id' => $this->departmentIdForRole($validated['role'], $validated['department_id'] ?? null),
         ]);
 
         if (! empty($validated['password'])) {
@@ -88,6 +87,7 @@ class UserController extends AdminController
         }
 
         $user->syncRoles([$validated['role']]);
+        $this->syncHodSection($user, $validated['role'], $validated['school_section_id'] ?? null);
 
         if ($request->boolean('remove_passport') && ! $request->hasFile('passport')) {
             $user->deletePassportFile();
@@ -131,31 +131,39 @@ class UserController extends AdminController
             'password' => [$user ? 'nullable' : 'required', 'string', 'min:8', 'confirmed'],
             'status' => ['required', 'in:active,inactive'],
             'role' => ['required', 'string', Rule::in(array_keys($this->assignableRoles()))],
-            'department_id' => [
+            'school_section_id' => [
                 $request->input('role') === 'head_of_department' ? 'required' : 'nullable',
-                Rule::exists('departments', 'id')->where(fn ($query) => $query
-                    ->where('school_id', $this->schoolId())
-                    ->where('status', 'active')),
+                Rule::exists('school_sections', 'id')->where(fn ($query) => $query->where('school_id', $this->schoolId())),
             ],
+        ], [
+            'school_section_id.required' => 'Select a school section for this Head of Department.',
         ]);
     }
 
-    protected function departmentIdForRole(string $role, mixed $departmentId): ?int
+    protected function syncHodSection(User $user, string $role, mixed $sectionId): void
     {
-        if ($role !== 'head_of_department') {
-            return null;
+        $sectionId = $sectionId ? (int) $sectionId : null;
+
+        SchoolSection::where('school_id', $this->schoolId())
+            ->where('hod_id', $user->id)
+            ->when($role === 'head_of_department' && $sectionId, fn ($query) => $query->where('id', '!=', $sectionId))
+            ->update(['hod_id' => null]);
+
+        if ($role !== 'head_of_department' || ! $sectionId) {
+            return;
         }
 
-        return $departmentId ? (int) $departmentId : null;
+        SchoolSection::where('id', $sectionId)
+            ->where('school_id', $this->schoolId())
+            ->update(['hod_id' => $user->id]);
     }
 
     /**
-     * @return \Illuminate\Support\Collection<int, Department>
+     * @return \Illuminate\Support\Collection<int, SchoolSection>
      */
-    protected function schoolDepartments()
+    protected function schoolSections()
     {
-        return Department::where('school_id', $this->schoolId())
-            ->where('status', 'active')
+        return SchoolSection::where('school_id', $this->schoolId())
             ->orderBy('name')
             ->get();
     }

@@ -21,13 +21,20 @@ class SchemeOfWorkService
      * @param  array<string, mixed>  $attributes
      * @param  array<int, array<string, mixed>>  $topics
      */
-    public function createDraft(User $hod, array $attributes, array $topics, ?UploadedFile $file = null): SchemeOfWork
+    public function createDraft(User $teacher, array $attributes, array $topics, ?UploadedFile $file = null): SchemeOfWork
     {
-        $this->assertHod($hod);
-        $this->assertHodCanTarget($hod, (int) $attributes['academic_session_id'], (int) $attributes['term_id'], (int) $attributes['school_class_id'], (int) $attributes['subject_id']);
-        $this->assertNoInFlight((int) $attributes['academic_session_id'], (int) $attributes['term_id'], (int) $attributes['school_class_id'], (int) $attributes['subject_id']);
+        $this->assertTeacher($teacher);
+        $this->assertTeacherCanTarget($teacher, (int) $attributes['academic_session_id'], (int) $attributes['term_id'], (int) $attributes['school_class_id'], (int) $attributes['subject_id']);
 
-        return DB::transaction(function () use ($hod, $attributes, $topics, $file) {
+        return DB::transaction(function () use ($teacher, $attributes, $topics, $file) {
+            $this->assertNoInFlight(
+                (int) $attributes['academic_session_id'],
+                (int) $attributes['term_id'],
+                (int) $attributes['school_class_id'],
+                (int) $attributes['subject_id'],
+                lock: true,
+            );
+
             $active = $this->activeForKey(
                 (int) $attributes['academic_session_id'],
                 (int) $attributes['term_id'],
@@ -47,7 +54,7 @@ class SchemeOfWorkService
                     (int) $attributes['subject_id'],
                 ),
                 'replaces_id' => $active?->id,
-                'uploaded_by' => $hod->id,
+                'uploaded_by' => $teacher->id,
                 'status' => 'draft',
                 'file_path' => $file ? $file->store('schemes-of-work', 'public') : null,
             ]);
@@ -62,22 +69,24 @@ class SchemeOfWorkService
      * @param  array<string, mixed>  $attributes
      * @param  array<int, array<string, mixed>>  $topics
      */
-    public function updateDraft(User $hod, SchemeOfWork $scheme, array $attributes, array $topics, ?UploadedFile $file = null): SchemeOfWork
+    public function updateDraft(User $teacher, SchemeOfWork $scheme, array $attributes, array $topics, ?UploadedFile $file = null): SchemeOfWork
     {
-        $this->assertHod($hod);
-        $this->assertHodOwnsDraft($hod, $scheme);
+        $this->assertTeacher($teacher);
+        $this->assertTeacherOwnsDraft($teacher, $scheme);
         abort_unless($scheme->isEditableDraft(), 422, 'Only unsubmitted drafts can be edited.');
 
-        $this->assertHodCanTarget($hod, (int) $attributes['academic_session_id'], (int) $attributes['term_id'], (int) $attributes['school_class_id'], (int) $attributes['subject_id']);
-        $this->assertNoInFlight(
-            (int) $attributes['academic_session_id'],
-            (int) $attributes['term_id'],
-            (int) $attributes['school_class_id'],
-            (int) $attributes['subject_id'],
-            $scheme->id,
-        );
+        $this->assertTeacherCanTarget($teacher, (int) $attributes['academic_session_id'], (int) $attributes['term_id'], (int) $attributes['school_class_id'], (int) $attributes['subject_id']);
 
         return DB::transaction(function () use ($scheme, $attributes, $topics, $file) {
+            $this->assertNoInFlight(
+                (int) $attributes['academic_session_id'],
+                (int) $attributes['term_id'],
+                (int) $attributes['school_class_id'],
+                (int) $attributes['subject_id'],
+                $scheme->id,
+                lock: true,
+            );
+
             if ($file && $scheme->file_path) {
                 Storage::disk('public')->delete($scheme->file_path);
             }
@@ -107,69 +116,84 @@ class SchemeOfWorkService
         });
     }
 
-    public function clone(User $hod, SchemeOfWork $source): SchemeOfWork
+    public function clone(User $teacher, SchemeOfWork $source): SchemeOfWork
     {
-        $this->assertHod($hod);
-        $this->assertHodCanTarget($hod, (int) $source->academic_session_id, (int) $source->term_id, (int) $source->school_class_id, (int) $source->subject_id);
-        $this->assertNoInFlight((int) $source->academic_session_id, (int) $source->term_id, (int) $source->school_class_id, (int) $source->subject_id);
+        $this->assertTeacher($teacher);
+        $this->assertTeacherCanTarget($teacher, (int) $source->academic_session_id, (int) $source->term_id, (int) $source->school_class_id, (int) $source->subject_id);
 
         $source->load('topics');
 
-        return DB::transaction(function () use ($hod, $source) {
-            $filePath = null;
-            if ($source->file_path && Storage::disk('public')->exists($source->file_path)) {
-                $extension = pathinfo($source->file_path, PATHINFO_EXTENSION);
-                $filePath = 'schemes-of-work/'.uniqid('clone_', true).($extension ? '.'.$extension : '');
-                Storage::disk('public')->copy($source->file_path, $filePath);
-            }
+        return DB::transaction(function () use ($teacher, $source) {
+            $this->assertNoInFlight(
+                (int) $source->academic_session_id,
+                (int) $source->term_id,
+                (int) $source->school_class_id,
+                (int) $source->subject_id,
+                lock: true,
+            );
 
-            $scheme = SchemeOfWork::create([
-                'subject_id' => $source->subject_id,
-                'school_class_id' => $source->school_class_id,
-                'academic_session_id' => $source->academic_session_id,
-                'term_id' => $source->term_id,
-                'version' => $this->nextVersion(
-                    (int) $source->academic_session_id,
-                    (int) $source->term_id,
-                    (int) $source->school_class_id,
-                    (int) $source->subject_id,
-                ),
-                'replaces_id' => $source->id,
-                'uploaded_by' => $hod->id,
-                'file_path' => $filePath,
-                'status' => 'draft',
-            ]);
-
-            foreach ($source->topics as $index => $topic) {
-                Topic::create([
-                    'scheme_of_work_id' => $scheme->id,
-                    'week_number' => $topic->week_number,
-                    'title' => $topic->title,
-                    'description' => $topic->description,
-                    'learning_objectives' => $topic->learning_objectives,
-                    'expected_duration_minutes' => $topic->expected_duration_minutes,
-                    'display_order' => $topic->display_order ?: ($index + 1),
-                    'status' => 'planned',
-                ]);
-            }
-
-            return $scheme->fresh(['topics']);
+            return $this->createClonedDraft(
+                $teacher,
+                $source,
+                (int) $source->academic_session_id,
+                (int) $source->term_id,
+            );
         });
     }
 
-    public function submit(User $hod, SchemeOfWork $scheme): SchemeOfWork
+    public function cloneToSession(User $teacher, SchemeOfWork $source, int $destSessionId, int $destTermId): SchemeOfWork
     {
-        $this->assertHod($hod);
-        $this->assertHodOwnsDraft($hod, $scheme);
+        $this->assertTeacher($teacher);
+        $source->loadMissing(['term', 'topics']);
+
+        if ((int) $source->academic_session_id === $destSessionId && (int) $source->term_id === $destTermId) {
+            throw ValidationException::withMessages([
+                'term_id' => 'Use Clone as draft to create a new version in the same session and term.',
+            ]);
+        }
+
+        $destTerm = Term::find($destTermId);
+        if (! $destTerm || (int) $destTerm->sequence !== (int) $source->term?->sequence) {
+            throw ValidationException::withMessages([
+                'term_id' => 'Clone First Term to First Term, Second Term to Second Term, or Third Term to Third Term only.',
+            ]);
+        }
+
+        $this->assertTeacherCanTarget(
+            $teacher,
+            $destSessionId,
+            $destTermId,
+            (int) $source->school_class_id,
+            (int) $source->subject_id,
+        );
+
+        return DB::transaction(function () use ($teacher, $source, $destSessionId, $destTermId) {
+            $this->assertNoInFlight(
+                $destSessionId,
+                $destTermId,
+                (int) $source->school_class_id,
+                (int) $source->subject_id,
+                lock: true,
+            );
+
+            return $this->createClonedDraft($teacher, $source, $destSessionId, $destTermId);
+        });
+    }
+
+    public function submit(User $teacher, SchemeOfWork $scheme): SchemeOfWork
+    {
+        $this->assertTeacher($teacher);
+        $this->assertTeacherOwnsDraft($teacher, $scheme);
         abort_unless($scheme->canBeSubmitted(), 422, 'Only unsubmitted drafts can be submitted.');
 
-        $scheme->loadMissing(['academicSession', 'term']);
+        $scheme->loadMissing(['academicSession', 'term', 'schoolClass.schoolSection']);
         app(AcademicPeriodService::class)->assertAcceptsNewActivity($scheme->academicSession, $scheme->term);
+        $this->assertSectionHasHod($scheme->schoolClass);
 
         $this->assertStructuredEvidence($scheme);
 
         $scheme->update([
-            'submitted_by' => $hod->id,
+            'submitted_by' => $teacher->id,
             'submitted_at' => now(),
             'rejected_by' => null,
             'rejected_at' => null,
@@ -181,61 +205,48 @@ class SchemeOfWorkService
 
     public function approve(User $actor, SchemeOfWork $scheme): SchemeOfWork
     {
-        if ($actor->isHoS()) {
-            return $this->approveByHos($actor, $scheme);
+        abort_unless($actor->isHoD(), 403, 'Only the section Head of Department may approve a scheme of work.');
+        abort_unless($scheme->canHodApprove(), 422, 'Only a submitted scheme can be approved.');
+
+        $scheme->loadMissing('schoolClass');
+        app(HodScope::class)->assertCanReviewSchemeClass($actor, (int) $scheme->school_class_id);
+
+        $activated = DB::transaction(function () use ($actor, $scheme) {
+            $locked = SchemeOfWork::query()->whereKey($scheme->id)->lockForUpdate()->firstOrFail();
+            abort_unless($locked->canHodApprove(), 422, 'Only a submitted scheme can be approved.');
+
+            $now = now();
+            $locked->update([
+                'approved_by' => $actor->id,
+                'approved_at' => $now,
+                'status' => 'approved',
+            ]);
+
+            $this->archivePreviousActive($locked);
+            $locked->update(['status' => 'active']);
+
+            return $locked->fresh(['academicSession', 'term']);
+        });
+
+        if ($activated->academicSession && $activated->term) {
+            app(CurriculumCoverageKpiService::class)->recalculateSoWCompleteness($activated->academicSession, $activated->term);
         }
 
-        if ($actor->isBoard()) {
-            return $this->approveByBoard($actor, $scheme);
-        }
-
-        abort(403, 'Only the Head of School or Board may approve a scheme of work.');
-    }
-
-    public function approveByHos(User $hos, SchemeOfWork $scheme): SchemeOfWork
-    {
-        abort_unless($hos->isHoS(), 403);
-        abort_unless($scheme->canHosApprove(), 422, 'HoS can approve only a submitted draft that has not yet received approval 1.');
-
-        $scheme->update([
-            'hos_approved_by' => $hos->id,
-            'hos_approved_at' => now(),
-        ]);
-
-        return $scheme->fresh();
-    }
-
-    public function approveByBoard(User $board, SchemeOfWork $scheme): SchemeOfWork
-    {
-        abort_unless($board->isBoard(), 403);
-        abort_unless($scheme->hasHosApproval(), 422, 'Board cannot approve until the Head of School has approved.');
-        abort_unless($scheme->canBoardApprove(), 422, 'Board can approve only after HoS approval, before the scheme is already approved.');
-
-        $now = now();
-        $scheme->update([
-            'board_approved_by' => $board->id,
-            'board_approved_at' => $now,
-            'approved_by' => $board->id,
-            'approved_at' => $now,
-            'status' => 'approved',
-        ]);
-
-        return $scheme->fresh();
+        return $activated;
     }
 
     public function reject(User $actor, SchemeOfWork $scheme, string $reason): SchemeOfWork
     {
-        abort_unless($actor->isHoS() || $actor->isBoard(), 403);
+        abort_unless($actor->isHoD(), 403, 'Only the section Head of Department may return a scheme of work.');
         abort_unless($scheme->canReject(), 422, 'Only a submitted draft or an approved scheme that is not yet Active can be rejected.');
+
+        $scheme->loadMissing('schoolClass');
+        app(HodScope::class)->assertCanReviewSchemeClass($actor, (int) $scheme->school_class_id);
 
         $scheme->update([
             'status' => 'draft',
             'submitted_by' => null,
             'submitted_at' => null,
-            'hos_approved_by' => null,
-            'hos_approved_at' => null,
-            'board_approved_by' => null,
-            'board_approved_at' => null,
             'approved_by' => null,
             'approved_at' => null,
             'rejected_by' => $actor->id,
@@ -246,11 +257,11 @@ class SchemeOfWorkService
         return $scheme->fresh();
     }
 
-    public function deleteErroneousVersion(User $hod, SchemeOfWork $scheme): void
+    public function deleteErroneousVersion(User $teacher, SchemeOfWork $scheme): void
     {
-        $this->assertHod($hod);
-        abort_unless($this->canView($hod, $scheme), 403);
-        abort_unless($scheme->canBePermanentlyDeleted(), 422, 'Only a draft scheme of work can be deleted. Active and archived versions are kept as history.');
+        $this->assertTeacher($teacher);
+        $this->assertTeacherOwnsDraft($teacher, $scheme);
+        abort_unless($scheme->canBePermanentlyDeleted(), 422, 'Only an unsubmitted draft can be deleted. Submitted, approved, active, and archived versions are kept as history.');
 
         $scheme->loadMissing(['topics.lessonPlans', 'topics.coverageLogs']);
 
@@ -273,40 +284,6 @@ class SchemeOfWorkService
         });
     }
 
-    public function activate(User $board, SchemeOfWork $scheme): SchemeOfWork
-    {
-        abort_unless($board->isBoard(), 403);
-        abort_unless($scheme->canActivate(), 422, 'Only an approved scheme with both approval slots can be activated.');
-
-        $activated = DB::transaction(function () use ($scheme) {
-            $locked = SchemeOfWork::query()->whereKey($scheme->id)->lockForUpdate()->firstOrFail();
-            abort_unless($locked->canActivate(), 422, 'Only an approved scheme with both approval slots can be activated.');
-
-            SchemeOfWork::query()
-                ->forKey(
-                    (int) $locked->academic_session_id,
-                    (int) $locked->term_id,
-                    (int) $locked->school_class_id,
-                    (int) $locked->subject_id,
-                )
-                ->where('status', 'active')
-                ->where('id', '!=', $locked->id)
-                ->lockForUpdate()
-                ->get()
-                ->each(fn (SchemeOfWork $previous) => $previous->update(['status' => 'archived']));
-
-            $locked->update(['status' => 'active']);
-
-            return $locked->fresh(['academicSession', 'term']);
-        });
-
-        if ($activated->academicSession && $activated->term) {
-            app(CurriculumCoverageKpiService::class)->recalculateSoWCompleteness($activated->academicSession, $activated->term);
-        }
-
-        return $activated;
-    }
-
     public function hodCanTargetSubject(User $hod, Subject $subject): bool
     {
         return $hod->isHoD()
@@ -321,8 +298,8 @@ class SchemeOfWorkService
             return false;
         }
 
-        if (! in_array($scheme->status, ['approved', 'active'], true)) {
-            return false;
+        if ((int) $scheme->uploaded_by === (int) $teacher->id) {
+            return true;
         }
 
         $sessionId = (int) $scheme->academic_session_id;
@@ -333,6 +310,28 @@ class SchemeOfWorkService
             ->where('subject_id', $scheme->subject_id)
             ->where('status', 'active')
             ->exists();
+    }
+
+    public function teacherHasAssignment(User $teacher, int $sessionId, int $classId, int $subjectId): bool
+    {
+        return TeacherAssignment::where('teacher_id', $teacher->id)
+            ->where('academic_session_id', $sessionId)
+            ->where('school_class_id', $classId)
+            ->where('subject_id', $subjectId)
+            ->where('status', 'active')
+            ->exists();
+    }
+
+    public function canPlanLessons(User $user, SchemeOfWork $scheme): bool
+    {
+        return $user->isTeacher()
+            && $scheme->isActive()
+            && $this->teacherHasAssignment(
+                $user,
+                (int) $scheme->academic_session_id,
+                (int) $scheme->school_class_id,
+                (int) $scheme->subject_id,
+            );
     }
 
     public function canOversee(User $user): bool
@@ -350,22 +349,49 @@ class SchemeOfWorkService
         }
 
         if ($user->isHoD()) {
-            return $this->hodCanTargetSubject($user, $scheme->subject ?? $scheme->subject()->firstOrFail());
+            return app(HodScope::class)->canReviewSchemeClass($user, (int) $scheme->school_class_id);
         }
 
         return $this->teacherCanView($user, $scheme);
     }
 
-    protected function assertHod(User $user): void
+    public function canPrepare(User $user): bool
     {
-        abort_unless($user->isHoD(), 403, 'Only a Head of Department can prepare a scheme of work.');
+        return $user->isTeacher();
     }
 
-    protected function assertHodOwnsDraft(User $hod, SchemeOfWork $scheme): void
+    public function canEditDraft(User $user, SchemeOfWork $scheme): bool
     {
-        abort_unless($scheme->isDraft(), 422, 'Only a draft can be changed by the Head of Department.');
-        $this->assertHodCanTarget(
-            $hod,
+        return $user->isTeacher()
+            && $scheme->isEditableDraft()
+            && (int) $scheme->uploaded_by === (int) $user->id;
+    }
+
+    public function canApproveScheme(User $user, SchemeOfWork $scheme): bool
+    {
+        return $user->isHoD()
+            && $scheme->canHodApprove()
+            && app(HodScope::class)->canReviewSchemeClass($user, (int) $scheme->school_class_id);
+    }
+
+    public function canRejectScheme(User $user, SchemeOfWork $scheme): bool
+    {
+        return $user->isHoD()
+            && $scheme->canReject()
+            && app(HodScope::class)->canReviewSchemeClass($user, (int) $scheme->school_class_id);
+    }
+
+    protected function assertTeacher(User $user): void
+    {
+        abort_unless($user->isTeacher(), 403, 'Only a teacher can prepare a scheme of work.');
+    }
+
+    protected function assertTeacherOwnsDraft(User $teacher, SchemeOfWork $scheme): void
+    {
+        abort_unless($scheme->isDraft(), 422, 'Only a draft can be changed by the teacher.');
+        abort_unless((int) $scheme->uploaded_by === (int) $teacher->id, 403, 'You can only change a scheme of work that you uploaded.');
+        $this->assertTeacherCanTarget(
+            $teacher,
             (int) $scheme->academic_session_id,
             (int) $scheme->term_id,
             (int) $scheme->school_class_id,
@@ -373,14 +399,14 @@ class SchemeOfWorkService
         );
     }
 
-    protected function assertHodCanTarget(User $hod, int $sessionId, int $termId, int $classId, int $subjectId): void
+    protected function assertTeacherCanTarget(User $teacher, int $sessionId, int $termId, int $classId, int $subjectId): void
     {
         $session = AcademicSession::find($sessionId);
         $term = Term::find($termId);
         $class = SchoolClass::find($classId);
         $subject = Subject::find($subjectId);
 
-        if (! $session || (int) $session->school_id !== (int) $hod->school_id) {
+        if (! $session || (int) $session->school_id !== (int) $teacher->school_id) {
             throw ValidationException::withMessages(['academic_session_id' => 'Choose a session that belongs to your school.']);
         }
 
@@ -390,28 +416,105 @@ class SchemeOfWorkService
 
         app(AcademicPeriodService::class)->assertAcceptsNewActivity($session, $term);
 
-        if (! $class || (int) $class->school_id !== (int) $hod->school_id) {
-            throw ValidationException::withMessages(['school_class_id' => 'Choose a class in your department.']);
+        if (! $class || (int) $class->school_id !== (int) $teacher->school_id) {
+            throw ValidationException::withMessages(['school_class_id' => 'Choose a class you are assigned to teach.']);
+        }
+
+        if (! $subject || (int) $subject->school_id !== (int) $teacher->school_id) {
+            throw ValidationException::withMessages(['subject_id' => 'Choose a subject you are assigned to teach.']);
         }
 
         if ($class->offeredSubjects()->exists() && ! $class->offeredSubjects()->whereKey($subjectId)->exists()) {
             throw ValidationException::withMessages(['subject_id' => 'Choose a subject that is offered in the selected class.']);
         }
 
-        if (! $subject || ! $this->hodCanTargetSubject($hod, $subject)) {
-            throw ValidationException::withMessages(['subject_id' => 'You can only prepare schemes for subjects in your department.']);
+        if (! $this->teacherHasAssignment($teacher, $sessionId, $classId, $subjectId)) {
+            throw ValidationException::withMessages(['subject_id' => 'You can only upload a scheme for a class and subject assigned to you in this session.']);
         }
     }
 
-    protected function assertNoInFlight(int $sessionId, int $termId, int $classId, int $subjectId, ?int $exceptId = null): void
+    protected function assertSectionHasHod(?SchoolClass $class): void
     {
-        $exists = SchemeOfWork::query()
+        $class?->loadMissing('schoolSection');
+
+        if (! $class?->school_section_id || ! $class->schoolSection) {
+            throw ValidationException::withMessages([
+                'school_class_id' => 'This class is not assigned to a school section. Ask an administrator to assign it before you submit.',
+            ]);
+        }
+
+        if (! $class->schoolSection->hod_id) {
+            throw ValidationException::withMessages([
+                'school_class_id' => 'This school section has no Head of Department. Ask an administrator to assign a HOD before you submit.',
+            ]);
+        }
+    }
+
+    protected function createClonedDraft(User $teacher, SchemeOfWork $source, int $sessionId, int $termId): SchemeOfWork
+    {
+        $filePath = null;
+        if ($source->file_path && Storage::disk('public')->exists($source->file_path)) {
+            $extension = pathinfo($source->file_path, PATHINFO_EXTENSION);
+            $filePath = 'schemes-of-work/'.uniqid('clone_', true).($extension ? '.'.$extension : '');
+            Storage::disk('public')->copy($source->file_path, $filePath);
+        }
+
+        $scheme = SchemeOfWork::create([
+            'subject_id' => $source->subject_id,
+            'school_class_id' => $source->school_class_id,
+            'academic_session_id' => $sessionId,
+            'term_id' => $termId,
+            'version' => $this->nextVersion($sessionId, $termId, (int) $source->school_class_id, (int) $source->subject_id),
+            'replaces_id' => $source->id,
+            'uploaded_by' => $teacher->id,
+            'file_path' => $filePath,
+            'status' => 'draft',
+        ]);
+
+        foreach ($source->topics as $index => $topic) {
+            Topic::create([
+                'scheme_of_work_id' => $scheme->id,
+                'week_number' => $topic->week_number,
+                'title' => $topic->title,
+                'description' => $topic->description,
+                'learning_objectives' => $topic->learning_objectives,
+                'expected_duration_minutes' => $topic->expected_duration_minutes,
+                'display_order' => $topic->display_order ?: ($index + 1),
+                'status' => 'planned',
+            ]);
+        }
+
+        return $scheme->fresh(['topics']);
+    }
+
+    protected function archivePreviousActive(SchemeOfWork $scheme): void
+    {
+        SchemeOfWork::query()
+            ->forKey(
+                (int) $scheme->academic_session_id,
+                (int) $scheme->term_id,
+                (int) $scheme->school_class_id,
+                (int) $scheme->subject_id,
+            )
+            ->where('status', 'active')
+            ->where('id', '!=', $scheme->id)
+            ->lockForUpdate()
+            ->get()
+            ->each(fn (SchemeOfWork $previous) => $previous->update(['status' => 'archived']));
+    }
+
+    protected function assertNoInFlight(int $sessionId, int $termId, int $classId, int $subjectId, ?int $exceptId = null, bool $lock = false): void
+    {
+        $query = SchemeOfWork::query()
             ->forKey($sessionId, $termId, $classId, $subjectId)
             ->whereIn('status', ['draft', 'approved'])
-            ->when($exceptId, fn ($query) => $query->where('id', '!=', $exceptId))
-            ->exists();
+            ->when($exceptId, fn ($inner) => $inner->where('id', '!=', $exceptId));
 
-        if ($exists) {
+        if ($lock) {
+            $query->lockForUpdate();
+        }
+
+        if ($query->exists()) {
             throw ValidationException::withMessages([
                 'subject_id' => 'There is already a draft or approved scheme in flight for this session, term, class, and subject.',
             ]);

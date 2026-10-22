@@ -108,13 +108,15 @@ class HodQueueScaleTest extends TestCase
             'status' => 'active',
         ]);
         $class = SchoolClass::create(['school_id' => $school->id, 'name' => 'JSS 1A', 'level' => 'JSS', 'status' => 'active']);
+        $humanitiesClass = SchoolClass::create(['school_id' => $school->id, 'name' => 'JSS 1B', 'level' => 'JSS', 'status' => 'active']);
 
         $sciences = Department::create(['school_id' => $school->id, 'name' => 'Sciences '.$token, 'status' => 'active']);
         $humanities = Department::create(['school_id' => $school->id, 'name' => 'Humanities '.$token, 'status' => 'active']);
 
         $physics = Subject::create(['school_id' => $school->id, 'department_id' => $sciences->id, 'name' => 'Physics', 'code' => 'PHY'.$token, 'status' => 'active']);
         $english = Subject::create(['school_id' => $school->id, 'department_id' => $humanities->id, 'name' => 'English', 'code' => 'ENG'.$token, 'status' => 'active']);
-        $class->offeredSubjects()->syncWithoutDetaching([$physics->id, $english->id]);
+        $class->offeredSubjects()->syncWithoutDetaching([$physics->id]);
+        $humanitiesClass->offeredSubjects()->syncWithoutDetaching([$english->id]);
 
         $scienceHod = User::create([
             'school_id' => $school->id,
@@ -135,6 +137,9 @@ class HodQueueScaleTest extends TestCase
             'status' => 'active',
         ]);
         $humanitiesHod->assignRole('head_of_department');
+
+        $this->assignSectionHod($school, $scienceHod, $class, 'Junior '.$token, [$physics->id]);
+        $this->assignSectionHod($school, $humanitiesHod, $humanitiesClass, 'Senior '.$token, [$english->id]);
 
         $hos = User::create([
             'school_id' => $school->id,
@@ -163,22 +168,22 @@ class HodQueueScaleTest extends TestCase
         ]);
         TeacherAssignment::create([
             'teacher_id' => $teacher->id,
-            'school_class_id' => $class->id,
+            'school_class_id' => $humanitiesClass->id,
             'subject_id' => $english->id,
             'academic_session_id' => $session->id,
             'status' => 'active',
         ]);
 
         $physicsScheme = $this->scheme($physics, $class, $session, $term, $scienceHod, 'Forces');
-        $englishScheme = $this->scheme($english, $class, $session, $term, $humanitiesHod, 'Comprehension');
+        $englishScheme = $this->scheme($english, $humanitiesClass, $session, $term, $humanitiesHod, 'Comprehension');
         $termTwoScheme = $this->scheme($physics, $class, $session, $termTwo, $scienceHod, 'Waves next term');
 
         $physicsPlan = $this->plan($physicsScheme['topic'], $teacher, $class, $physics);
-        $englishPlan = $this->plan($englishScheme['topic'], $teacher, $class, $english);
+        $englishPlan = $this->plan($englishScheme['topic'], $teacher, $humanitiesClass, $english);
         $termTwoPlan = $this->plan($termTwoScheme['topic'], $teacher, $class, $physics);
 
         return compact(
-            'school', 'session', 'term', 'termTwo', 'class', 'sciences', 'humanities',
+            'school', 'session', 'term', 'termTwo', 'class', 'humanitiesClass', 'sciences', 'humanities',
             'physics', 'english', 'scienceHod', 'humanitiesHod', 'hos', 'teacher',
             'physicsPlan', 'englishPlan', 'termTwoPlan'
         );
@@ -290,15 +295,15 @@ class HodQueueScaleTest extends TestCase
             ->assertForbidden();
     }
 
-    public function test_hos_can_approve_any_plan_in_school(): void
+    public function test_hos_cannot_approve_lesson_plans(): void
     {
         $world = $this->world();
 
         $this->actingAs($world['hos'])
             ->post(route('lesson-plans.approve', $world['englishPlan']), $this->passingChecklist())
-            ->assertRedirect();
+            ->assertForbidden();
 
-        $this->assertSame('approved', $world['englishPlan']->fresh()->status);
+        $this->assertSame('submitted', $world['englishPlan']->fresh()->status);
     }
 
     public function test_dashboard_scopes_department_session_and_term(): void
@@ -311,7 +316,7 @@ class HodQueueScaleTest extends TestCase
             ->assertSee('Forces')
             ->assertDontSee('Comprehension')
             ->assertDontSee('Waves next term')
-            ->assertSee('Group by');
+            ->assertSee('Action Queue');
 
         $this->actingAs($world['scienceHod'])
             ->get(route('dashboard', ['term_id' => $world['termTwo']->id]))
@@ -352,6 +357,7 @@ class HodQueueScaleTest extends TestCase
             'status' => 'active',
         ]);
         $ss2->offeredSubjects()->syncWithoutDetaching([$world['english']->id]);
+        $ss2->update(['school_section_id' => $world['humanitiesClass']->school_section_id]);
         $learner = Learner::create([
             'school_id' => $world['school']->id,
             'school_class_id' => $ss2->id,

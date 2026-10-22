@@ -121,6 +121,7 @@ class LessonPlanReviewTest extends TestCase
             'academic_session_id' => $session->id,
             'status' => 'active',
         ]);
+        $this->assignSectionHod($school, $users['head_of_department'], $class, 'Basic School '.$token, [$subject->id]);
 
         $scheme = SchemeOfWork::create([
             'subject_id' => $subject->id,
@@ -299,7 +300,7 @@ class LessonPlanReviewTest extends TestCase
                 'activities' => 'Pair work',
                 'assessment' => 'Exit ticket',
             ])
-            ->assertRedirect(route('dashboard'));
+            ->assertRedirect(route('lesson-plans.show', $plan));
 
         $plan = $plan->fresh();
         $this->assertSame('submitted', $plan->status);
@@ -372,7 +373,14 @@ class LessonPlanReviewTest extends TestCase
         $this->actingAs($world['users']['head_of_department'])
             ->get(route('lesson-plans.index'))
             ->assertOk()
+            ->assertSee(route('lesson-plans.show', $plan), false)
+            ->assertSee('Review');
+
+        $this->actingAs($world['users']['head_of_department'])
+            ->get(route('lesson-plans.show', $plan))
+            ->assertOk()
             ->assertSee('Quality checklist (AE-05.2)')
+            ->assertSee($plan->activities)
             ->assertSee(route('lesson-plans.approve', $plan), false);
     }
 }

@@ -16,6 +16,7 @@ use App\Http\Controllers\Admin\PartnershipCharterController;
 use App\Http\Controllers\Admin\KpiController;
 use App\Http\Controllers\Admin\DepartmentController;
 use App\Http\Controllers\Admin\SchoolClassController;
+use App\Http\Controllers\Admin\SchoolSectionController;
 use App\Http\Controllers\Admin\SubjectController;
 use App\Http\Controllers\Admin\TeacherAssignmentController;
 use App\Http\Controllers\Admin\TermController;
@@ -36,6 +37,7 @@ use App\Http\Controllers\DigitalEthicsAuditController;
 use App\Http\Controllers\DisciplineIncidentController;
 use App\Http\Controllers\EAssessmentController;
 use App\Http\Controllers\ExamResultController;
+use App\Http\Controllers\HodReviewQueueController;
 use App\Http\Controllers\HomeworkLogController;
 use App\Http\Controllers\InterventionPlanController;
 use App\Http\Controllers\LandingController;
@@ -97,9 +99,10 @@ Route::middleware('auth')->group(function () {
     Route::put('/schemes/{scheme}', [SchemeOfWorkController::class, 'update'])->name('schemes.update');
     Route::post('/schemes/{scheme}/submit', [SchemeOfWorkController::class, 'submit'])->name('schemes.submit');
     Route::post('/schemes/{scheme}/clone', [SchemeOfWorkController::class, 'clone'])->name('schemes.clone');
+    Route::get('/schemes/{scheme}/clone-session', [SchemeOfWorkController::class, 'cloneSessionForm'])->name('schemes.clone-session');
+    Route::post('/schemes/{scheme}/clone-session', [SchemeOfWorkController::class, 'cloneSession'])->name('schemes.clone-session.store');
     Route::post('/schemes/{scheme}/approve', [SchemeOfWorkController::class, 'approve'])->name('schemes.approve');
     Route::post('/schemes/{scheme}/reject', [SchemeOfWorkController::class, 'reject'])->name('schemes.reject');
-    Route::post('/schemes/{scheme}/activate', [SchemeOfWorkController::class, 'activate'])->name('schemes.activate');
     Route::delete('/schemes/{scheme}', [SchemeOfWorkController::class, 'destroy'])->name('schemes.destroy');
     Route::get('/schemes/{scheme}/file', [SchemeOfWorkController::class, 'file'])->name('schemes.file');
 
@@ -112,10 +115,14 @@ Route::middleware('auth')->group(function () {
     Route::get('/lesson-plans', [LessonPlanController::class, 'index'])->name('lesson-plans.index');
     Route::get('/lesson-plans/create', [LessonPlanController::class, 'create'])->name('lesson-plans.create');
     Route::post('/lesson-plans', [LessonPlanController::class, 'store'])->name('lesson-plans.store');
+    Route::get('/lesson-plans/{lessonPlan}', [LessonPlanController::class, 'show'])->name('lesson-plans.show');
     Route::get('/lesson-plans/{lessonPlan}/edit', [LessonPlanController::class, 'edit'])->name('lesson-plans.edit');
     Route::put('/lesson-plans/{lessonPlan}', [LessonPlanController::class, 'update'])->name('lesson-plans.update');
     Route::post('/lesson-plans/{lessonPlan}/approve', [LessonPlanController::class, 'approve'])->name('lesson-plans.approve');
     Route::post('/lesson-plans/{lessonPlan}/reject', [LessonPlanController::class, 'reject'])->name('lesson-plans.reject');
+
+    Route::get('/hod/reviews/schemes', [HodReviewQueueController::class, 'schemes'])->name('hod.reviews.schemes');
+    Route::get('/hod/reviews/lesson-plans', [HodReviewQueueController::class, 'lessonPlans'])->name('hod.reviews.lesson-plans');
 
     Route::get('/homework', [HomeworkLogController::class, 'index'])->name('homework.index');
     Route::get('/homework/create', [HomeworkLogController::class, 'create'])->name('homework.create');
@@ -250,6 +257,10 @@ Route::middleware('auth')->group(function () {
     Route::put('/observations/{observation}', [ObservationController::class, 'update'])->name('observations.update');
     Route::delete('/observations/{observation}', [ObservationController::class, 'destroy'])->name('observations.destroy');
 
+    Route::middleware('assignments')->prefix('admin')->name('admin.')->group(function () {
+        Route::resource('assignments', TeacherAssignmentController::class)->except(['show'])->parameters(['assignments' => 'assignment']);
+    });
+
     Route::middleware('admin')->prefix('admin')->name('admin.')->group(function () {
         Route::get('/', AdminDashboardController::class)->name('dashboard');
         Route::get('control-panel', [ControlPanelController::class, 'edit'])->name('control-panel.edit');
@@ -257,11 +268,13 @@ Route::middleware('auth')->group(function () {
         Route::post('sessions/{session}/activate', [AcademicSessionController::class, 'activate'])->name('sessions.activate');
         Route::resource('sessions', AcademicSessionController::class)->except(['show']);
         Route::resource('terms', TermController::class)->except(['show']);
+        Route::resource('school-sections', SchoolSectionController::class)
+            ->except(['show'])
+            ->parameters(['school-sections' => 'schoolSection']);
         Route::resource('classes', SchoolClassController::class)->except(['show']);
         Route::resource('departments', DepartmentController::class)->except(['show']);
         Route::resource('subjects', SubjectController::class)->except(['show']);
         Route::resource('users', UserController::class)->except(['show']);
-        Route::resource('assignments', TeacherAssignmentController::class)->except(['show'])->parameters(['assignments' => 'assignment']);
         Route::resource('kpis', KpiController::class)->only(['index', 'edit', 'update']);
 
         // CE-02 admin: character domains

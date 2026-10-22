@@ -29,6 +29,18 @@
             </div>
 
             <div>
+                <x-input-label for="school_section_id" value="School section" />
+                <select id="school_section_id" name="school_section_id" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    <option value="">Unassigned</option>
+                    @foreach ($sections as $section)
+                        <option value="{{ $section->id }}" @selected((string) old('school_section_id', $class->school_section_id) === (string) $section->id)>{{ $section->name }}</option>
+                    @endforeach
+                </select>
+                <p class="mt-1 text-xs text-slate-500">The section HOD reviews schemes of work and lesson plans for this class. Leave unassigned until the section exists.</p>
+                <x-input-error :messages="$errors->get('school_section_id')" class="mt-2" />
+            </div>
+
+            <div>
                 <x-input-label for="status" value="Status" />
                 <select id="status" name="status" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                     @foreach (['active', 'inactive'] as $status)

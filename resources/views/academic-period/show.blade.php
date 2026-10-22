@@ -2,33 +2,59 @@
     <x-portal.page-intro
         eyebrow="Configuration"
         title="Academic session and term"
-        meta="Head of School, Board, Assistant Head, and System Admin move terms, prepare the next year, and activate a session. Historical records stay on the period they were created under."
+        meta="Operate the current school year: see the active term, add the next term, and transition when it is ready. A new session is created only for a new academic year."
     >
         <x-slot:actions>
+            @if (auth()->user()->isAdmin())
+                <a href="{{ route('admin.sessions.create') }}" class="inline-flex items-center rounded-lg border border-white/30 px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-white transition hover:bg-white/10">New academic year</a>
+            @endif
             @if (auth()->user()->isAdmin() || auth()->user()->isHoS())
                 <a href="{{ route('planning-policy.edit') }}" class="inline-flex items-center rounded-lg border border-white/30 px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-white transition hover:bg-white/10">Planning policy</a>
             @endif
         </x-slot:actions>
     </x-portal.page-intro>
 
+    @if (session('success'))
+        <div class="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            {{ session('success') }}
+        </div>
+    @endif
+
     <div class="grid gap-6 lg:grid-cols-3">
         <div class="lg:col-span-2 space-y-6">
             <x-portal.panel title="Current academic period">
-                <dl class="grid gap-4 sm:grid-cols-2 text-sm">
-                    <div>
-                        <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Current session</dt>
-                        <dd class="mt-1 text-lg font-semibold text-[#0f2d4a]">{{ $currentSession?->name ?? 'None' }}</dd>
-                    </div>
-                    <div>
-                        <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Current term</dt>
-                        <dd class="mt-1 text-lg font-semibold text-[#0f2d4a]">
-                            {{ $currentTerm?->name ?? 'None' }}
-                            @if ($currentTerm)
-                                <span class="text-sm font-normal text-slate-500"> · sequence {{ $currentTerm->sequence }}</span>
-                            @endif
-                        </dd>
-                    </div>
-                </dl>
+                @if ($currentSession && $currentTerm)
+                    <dl class="grid gap-4 sm:grid-cols-2 text-sm">
+                        <div>
+                            <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Current session</dt>
+                            <dd class="mt-1 text-lg font-semibold text-[#0f2d4a]">{{ $currentSession->name }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Current term</dt>
+                            <dd class="mt-1 text-lg font-semibold text-[#0f2d4a]">{{ $currentTerm->name }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Term dates</dt>
+                            <dd class="mt-1 text-slate-700">{{ $currentTerm->start_date->format('d M Y') }} — {{ $currentTerm->end_date->format('d M Y') }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Next term</dt>
+                            <dd class="mt-1 text-slate-700">
+                                @if ($nextTerm)
+                                    {{ $nextTerm->name }} · {{ $nextTerm->start_date->format('d M Y') }} — {{ $nextTerm->end_date->format('d M Y') }}
+                                @elseif ($nextAvailable)
+                                    {{ $nextAvailable['name'] }} is not configured yet.
+                                @else
+                                    All three terms are configured.
+                                @endif
+                            </dd>
+                        </div>
+                    </dl>
+                @elseif ($canStartYear)
+                    <p class="text-sm text-slate-600">There is no current academic period. Create a session and First Term from <strong>New academic year</strong>.</p>
+                @else
+                    <p class="text-sm text-slate-600">There is no current academic period. Ask System Admin to create and activate the school year.</p>
+                @endif
             </x-portal.panel>
 
             @if ($currentSession && $nextTerm)
@@ -47,161 +73,62 @@
                         <x-primary-button>Transition term</x-primary-button>
                     </form>
                 </x-portal.panel>
-            @elseif ($currentSession && $currentTerm)
-                <x-portal.panel title="Next term is not configured">
+            @elseif ($currentSession && $nextAvailable)
+                <x-portal.panel title="Add {{ $nextAvailable['name'] }}">
                     <p class="text-sm text-slate-600">
-                        There is no term after <strong>{{ $currentTerm->name }}</strong> (sequence {{ $currentTerm->sequence }}) in {{ $currentSession->name }}.
-                        Add sequence {{ $currentTerm->sequence + 1 }} with <strong>Configure a term</strong> below, then you can transition.
-                        To start a new school year instead, prepare a future session and activate it.
+                        {{ $nextAvailable['name'] }} is the next term in {{ $currentSession->name }}.
+                        Enter its dates, then you can transition when {{ $currentTerm?->name ?? 'the current term' }} ends.
                     </p>
-                </x-portal.panel>
-            @endif
-
-            @if ($canRollover)
-                <x-portal.panel title="Activate a prepared session">
-                    @if ($targetSessions->isEmpty())
-                        <p class="text-sm text-slate-600">Create a future session and add at least First Term below, then activate it here. Head of School, Board, Assistant Head, and System Admin can do this. No further approval is required.</p>
-                    @else
-                        <p class="text-sm text-slate-600 mb-4">
-                            Close <strong>{{ $currentSession->name }} — {{ $currentTerm->name }}</strong>
-                            and open a prepared future session at First Term.
-                            Historical records are not migrated.
-                        </p>
-                        <form method="POST" action="{{ route('academic-period.rollover') }}" class="space-y-4" onsubmit="return confirm('You are moving the school from {{ $currentSession->name }} — {{ $currentTerm->name }} to the selected future session. Historical academic records will remain attached to their original academic period. Continue?')">
-                            @csrf
-                            <div>
-                                <x-input-label for="target_session_id" value="Target session" />
-                                <select id="target_session_id" name="target_session_id" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-                                    @foreach ($targetSessions as $session)
-                                        <option value="{{ $session->id }}">{{ $session->name }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                            <div>
-                                <x-input-label for="rollover_notes" value="Notes (optional)" />
-                                <textarea id="rollover_notes" name="notes" rows="2" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"></textarea>
-                            </div>
-                            <x-primary-button>Activate session</x-primary-button>
-                        </form>
-                    @endif
-                </x-portal.panel>
-            @endif
-
-            @if (! $currentSession && ($canActivateAnytime ?? false))
-                <x-portal.panel title="Open initial academic period">
-                    <p class="text-sm text-slate-600 mb-4">There is no current period. Open a prepared session and term. This does not rewrite history.</p>
-                    <form method="POST" action="{{ route('academic-period.open') }}" class="space-y-4">
+                    <form method="POST" action="{{ route('academic-period.terms.store') }}" class="mt-5 grid gap-4 sm:grid-cols-2">
                         @csrf
-                        <div>
-                            <x-input-label for="session_id" value="Session" />
-                            <select id="session_id" name="session_id" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-                                @foreach ($sessions as $session)
-                                    <option value="{{ $session->id }}">{{ $session->name }}</option>
-                                @endforeach
+                        <input type="hidden" name="academic_session_id" value="{{ $currentSession->id }}">
+                        <div class="sm:col-span-2">
+                            <x-input-label for="sequence" value="Term" />
+                            <select id="sequence" name="sequence" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                <option value="{{ $nextAvailable['sequence'] }}" selected>{{ $nextAvailable['name'] }}</option>
                             </select>
+                            <x-input-error :messages="$errors->get('sequence')" class="mt-2" />
                         </div>
                         <div>
-                            <x-input-label for="term_id" value="Starting term" />
-                            <select id="term_id" name="term_id" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-                                @foreach ($sessions as $session)
-                                    @foreach ($session->terms as $term)
-                                        <option value="{{ $term->id }}">{{ $session->name }} — {{ $term->name }}</option>
-                                    @endforeach
-                                @endforeach
-                            </select>
+                            <x-input-label for="start_date" value="Start date" />
+                            <x-text-input id="start_date" name="start_date" type="date" class="block mt-1 w-full" :value="old('start_date')" required />
+                            <x-input-error :messages="$errors->get('start_date')" class="mt-2" />
                         </div>
-                        <x-primary-button>Open academic period</x-primary-button>
+                        <div>
+                            <x-input-label for="end_date" value="End date" />
+                            <x-text-input id="end_date" name="end_date" type="date" class="block mt-1 w-full" :value="old('end_date')" required />
+                            <x-input-error :messages="$errors->get('end_date')" class="mt-2" />
+                        </div>
+                        <div class="sm:col-span-2">
+                            <x-primary-button>Save {{ $nextAvailable['name'] }}</x-primary-button>
+                        </div>
                     </form>
                 </x-portal.panel>
             @endif
-
-            <x-portal.panel title="Prepare future session">
-                <p class="mb-4 text-sm text-slate-600">Create the next school year and add its terms. This does not make it current until you activate it above.</p>
-                <form method="POST" action="{{ route('academic-period.sessions.store') }}" class="grid gap-4 sm:grid-cols-2">
-                    @csrf
-                    <div class="sm:col-span-2">
-                        <x-input-label for="name" value="Session name" />
-                        <x-text-input id="name" name="name" type="text" class="block mt-1 w-full" required placeholder="e.g. 2026/2027" />
-                    </div>
-                    <div>
-                        <x-input-label for="start_date" value="Start date" />
-                        <x-text-input id="start_date" name="start_date" type="date" class="block mt-1 w-full" required />
-                    </div>
-                    <div>
-                        <x-input-label for="end_date" value="End date" />
-                        <x-text-input id="end_date" name="end_date" type="date" class="block mt-1 w-full" required />
-                    </div>
-                    <div class="sm:col-span-2">
-                        <x-primary-button>Create future session</x-primary-button>
-                    </div>
-                </form>
-            </x-portal.panel>
-
-            <x-portal.panel title="Configure a term">
-                <form method="POST" action="{{ route('academic-period.terms.store') }}" class="grid gap-4 sm:grid-cols-2">
-                    @csrf
-                    <div class="sm:col-span-2">
-                        <x-input-label for="academic_session_id" value="Session" />
-                        <select id="academic_session_id" name="academic_session_id" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-                            @foreach ($sessions as $session)
-                                <option value="{{ $session->id }}">{{ $session->name }} ({{ $session->status }})</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div>
-                        <x-input-label for="term_name" value="Term name" />
-                        <x-text-input id="term_name" name="name" type="text" class="block mt-1 w-full" required placeholder="e.g. Second Term" />
-                    </div>
-                    <div>
-                        <x-input-label for="sequence" value="Sequence" />
-                        <x-text-input id="sequence" name="sequence" type="number" min="1" class="block mt-1 w-full" placeholder="Leave blank to append" />
-                    </div>
-                    <div>
-                        <x-input-label for="term_start" value="Start date" />
-                        <x-text-input id="term_start" name="start_date" type="date" class="block mt-1 w-full" required />
-                    </div>
-                    <div>
-                        <x-input-label for="term_end" value="End date" />
-                        <x-text-input id="term_end" name="end_date" type="date" class="block mt-1 w-full" required />
-                    </div>
-                    <div class="sm:col-span-2">
-                        <x-primary-button>Add term</x-primary-button>
-                    </div>
-                </form>
-            </x-portal.panel>
         </div>
 
         <div class="space-y-6">
-            <x-portal.panel title="Sessions">
-                <ul class="space-y-3 text-sm">
-                    @forelse ($sessions as $session)
-                        <li class="rounded-lg border border-slate-200 px-3 py-2">
-                            <p class="font-medium text-slate-800">
-                                {{ $session->name }}
-                                @if ($session->is_current)
-                                    <span class="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-800">Current</span>
-                                @endif
-                            </p>
-                            <p class="text-xs capitalize text-slate-500">{{ $session->status }}</p>
-                            <ul class="mt-2 space-y-1 text-xs text-slate-600">
-                                @foreach ($session->terms as $term)
-                                    <li>
-                                        {{ $term->sequence }}. {{ $term->name }}
-                                        · {{ $term->status }}
-                                        @if ($term->is_current)
-                                            · current
-                                        @endif
-                                    </li>
-                                @endforeach
-                            </ul>
-                        </li>
-                    @empty
-                        <li class="text-sm text-slate-500">No sessions yet.</li>
-                    @endforelse
-                </ul>
+            <x-portal.panel id="sessions" title="Sessions">
+                @if (! $currentSession && $closedSessions->isEmpty())
+                    <p class="text-sm text-slate-500">No sessions yet.</p>
+                @else
+                    <ul class="space-y-3 text-sm">
+                        @if ($currentSession)
+                            @include('academic-period.partials.session-summary', ['session' => $currentSession])
+                        @endif
+                        @foreach ($closedSessions as $session)
+                            @include('academic-period.partials.session-summary', ['session' => $session])
+                        @endforeach
+                    </ul>
+                    @if ($closedSessions->hasPages())
+                        <div class="mt-3 border-t border-slate-100 pt-3">
+                            {{ $closedSessions->links('pagination::simple-tailwind') }}
+                        </div>
+                    @endif
+                @endif
             </x-portal.panel>
 
-            <x-portal.panel title="Recent transitions">
+            <x-portal.panel id="transitions" title="Recent transitions">
                 @if ($transitions->isEmpty())
                     <p class="text-sm text-slate-500">No transitions recorded yet.</p>
                 @else
@@ -214,6 +141,11 @@
                             </li>
                         @endforeach
                     </ul>
+                    @if ($transitions->hasPages())
+                        <div class="mt-3 border-t border-slate-100 pt-3">
+                            {{ $transitions->links('pagination::simple-tailwind') }}
+                        </div>
+                    @endif
                 @endif
             </x-portal.panel>
         </div>

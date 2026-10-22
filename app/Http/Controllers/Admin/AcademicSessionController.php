@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Models\AcademicSession;
-use App\Models\Term;
 use App\Services\AcademicPeriodService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -35,8 +34,9 @@ class AcademicSessionController extends AdminController
             'name' => ['required', 'string', 'max:255'],
             'start_date' => ['required', 'date'],
             'end_date' => ['required', 'date', 'after_or_equal:start_date'],
+            'first_term_start_date' => ['required', 'date'],
+            'first_term_end_date' => ['required', 'date', 'after_or_equal:first_term_start_date'],
             'activate' => ['sometimes', 'boolean'],
-            'first_term_name' => ['nullable', 'string', 'max:255'],
         ]);
 
         $activate = $request->boolean('activate');
@@ -51,17 +51,14 @@ class AcademicSessionController extends AdminController
                 'status' => 'upcoming',
             ]);
 
-            if ($activate) {
-                $term = Term::create([
-                    'academic_session_id' => $session->id,
-                    'name' => $validated['first_term_name'] ?: 'First Term',
-                    'start_date' => $validated['start_date'],
-                    'end_date' => $validated['end_date'],
-                    'sequence' => 1,
-                    'status' => 'upcoming',
-                    'is_current' => false,
-                ]);
+            $term = $this->periods->createUpcomingTerm(
+                $session,
+                1,
+                $validated['first_term_start_date'],
+                $validated['first_term_end_date'],
+            );
 
+            if ($activate) {
                 $this->periods->activateSession(auth()->user(), $session, $term);
             }
 
@@ -69,12 +66,12 @@ class AcademicSessionController extends AdminController
         });
 
         if ($activate) {
-            return redirect()->route('admin.sessions.index')
-                ->with('success', $session->name.' is now the current academic session. Add further terms if this year has more than one.');
+            return redirect()->route('academic-period.show')
+                ->with('success', $session->name.' is now the current academic session. Add Second Term when you are ready to move on.');
         }
 
         return redirect()->route('admin.sessions.index')
-            ->with('success', 'Future academic session created. Add terms, then activate it — admin does not need another role to approve.');
+            ->with('success', $session->name.' is prepared with First Term. Activate it when the school year should open.');
     }
 
     public function activate(AcademicSession $session): RedirectResponse
@@ -112,8 +109,8 @@ class AcademicSessionController extends AdminController
     {
         abort_unless($session->school_id === $this->schoolId(), 404);
 
-        if ($session->is_current || $this->periods->sessionHasDependents($session)) {
-            return back()->withErrors(['session' => 'Cannot delete the current session or a session that has historical academic records.']);
+        if ($session->is_current || $session->status === 'closed' || $this->periods->sessionHasDependents($session)) {
+            return back()->withErrors(['session' => 'Cannot delete the current session, a closed session, or a session that has historical academic records.']);
         }
 
         $session->delete();

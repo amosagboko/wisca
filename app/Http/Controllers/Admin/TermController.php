@@ -41,14 +41,14 @@ class TermController extends AdminController
         $this->ensureSessionBelongsToSchool($validated['academic_session_id']);
 
         $session = AcademicSession::findOrFail($validated['academic_session_id']);
-        $validated['sequence'] = $validated['sequence'] ?? ((int) $session->terms()->max('sequence') + 1);
-        $this->assertUniqueSequence($session, (int) $validated['sequence']);
-        $validated['status'] = 'upcoming';
-        $validated['is_current'] = false;
+        $this->periods->createUpcomingTerm(
+            $session,
+            (int) $validated['sequence'],
+            $validated['start_date'],
+            $validated['end_date'],
+        );
 
-        Term::create($validated);
-
-        return redirect()->route('admin.terms.index')->with('success', 'Term created as upcoming. Use Academic Period to open or transition.');
+        return redirect()->route('academic-period.show')->with('success', $this->periods->termLabel((int) $validated['sequence']).' configured on '.$session->name.'.');
     }
 
     public function edit(Term $term): View
@@ -65,7 +65,7 @@ class TermController extends AdminController
     {
         $this->ensureTermBelongsToSchool($term);
 
-        $validated = $this->validateTerm($request);
+        $validated = $this->validateTerm($request, $term);
         $this->ensureSessionBelongsToSchool($validated['academic_session_id']);
 
         if ((int) $validated['academic_session_id'] !== (int) $term->academic_session_id
@@ -73,13 +73,22 @@ class TermController extends AdminController
             return back()->withErrors(['academic_session_id' => 'Cannot move the current term or a term that has historical records to another session.']);
         }
 
-        unset($validated['status'], $validated['is_current']);
-        $this->assertUniqueSequence(
-            AcademicSession::findOrFail($validated['academic_session_id']),
-            (int) ($validated['sequence'] ?? $term->sequence),
+        $session = AcademicSession::findOrFail($validated['academic_session_id']);
+        $this->periods->assertCanonicalTerm(
+            $session,
+            (int) $validated['sequence'],
+            $validated['start_date'],
+            $validated['end_date'],
             $term->id,
         );
-        $term->update($validated);
+
+        $term->update([
+            'academic_session_id' => $session->id,
+            'sequence' => (int) $validated['sequence'],
+            'name' => $this->periods->termLabel((int) $validated['sequence']),
+            'start_date' => $validated['start_date'],
+            'end_date' => $validated['end_date'],
+        ]);
 
         return redirect()->route('admin.terms.index')->with('success', 'Term updated. Current-period changes are made from Academic Period.');
     }
@@ -97,15 +106,27 @@ class TermController extends AdminController
         return redirect()->route('admin.terms.index')->with('success', 'Term deleted.');
     }
 
-    protected function validateTerm(Request $request): array
+    /**
+     * @return array{academic_session_id: int, sequence: int, start_date: string, end_date: string}
+     */
+    protected function validateTerm(Request $request, ?Term $term = null): array
     {
-        return $request->validate([
+        $validated = $request->validate([
             'academic_session_id' => ['required', 'exists:academic_sessions,id'],
-            'name' => ['required', 'string', 'max:255'],
+            'sequence' => ['required', 'integer', 'in:1,2,3'],
             'start_date' => ['required', 'date'],
             'end_date' => ['required', 'date', 'after_or_equal:start_date'],
-            'sequence' => ['nullable', 'integer', 'min:1', 'max:12'],
         ]);
+
+        if ($term && (int) $validated['sequence'] !== (int) $term->sequence) {
+            $this->assertUniqueSequence(
+                AcademicSession::findOrFail($validated['academic_session_id']),
+                (int) $validated['sequence'],
+                $term->id,
+            );
+        }
+
+        return $validated;
     }
 
     protected function ensureSessionBelongsToSchool(int $sessionId): void

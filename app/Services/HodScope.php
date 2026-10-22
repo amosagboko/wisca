@@ -5,7 +5,7 @@ namespace App\Services;
 use App\Models\AttendanceLog;
 use App\Models\HomeworkLog;
 use App\Models\LessonPlan;
-use App\Models\Subject;
+use App\Models\SchoolClass;
 use App\Models\TopicCoverageLog;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\DB;
 class HodScope
 {
     /**
-     * Subject IDs this user may review. Null means unrestricted (school-wide).
+     * Subject IDs this user may review. Null means unrestricted (school-wide read).
      *
      * @return list<int>|null
      */
@@ -24,39 +24,43 @@ class HodScope
             return null;
         }
 
-        if (! $user->isHoD() || ! $user->department_id) {
+        $classIds = $this->classIds($user);
+        if ($classIds === null) {
             return null;
         }
 
-        return Subject::query()
-            ->where('school_id', $user->school_id)
-            ->where('department_id', $user->department_id)
-            ->pluck('id')
+        if ($classIds === []) {
+            return [];
+        }
+
+        return DB::table('class_subjects')
+            ->whereIn('school_class_id', $classIds)
+            ->pluck('subject_id')
+            ->unique()
             ->map(fn ($id) => (int) $id)
             ->values()
             ->all();
     }
 
     /**
-     * Class IDs that offer at least one subject in the HOD's department. Null means unrestricted.
+     * Class IDs in sections this HOD leads. Null means unrestricted. Empty means no section assignment.
      *
      * @return list<int>|null
      */
     public function classIds(User $user): ?array
     {
-        $subjectIds = $this->subjectIds($user);
-        if ($subjectIds === null) {
+        if ($this->isUnrestricted($user)) {
             return null;
         }
 
-        if ($subjectIds === []) {
+        if (! $user->isHoD()) {
             return [];
         }
 
-        return DB::table('class_subjects')
-            ->whereIn('subject_id', $subjectIds)
-            ->pluck('school_class_id')
-            ->unique()
+        return SchoolClass::query()
+            ->where('school_id', $user->school_id)
+            ->whereHas('schoolSection', fn ($query) => $query->where('hod_id', $user->id))
+            ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->values()
             ->all();
@@ -117,15 +121,11 @@ class HodScope
             return false;
         }
 
-        if ($user->isHoS()) {
-            return true;
-        }
-
         if (! $user->isHoD()) {
             return false;
         }
 
-        return $this->canReviewSubject($user, (int) $plan->subject_id);
+        return $this->canReviewClass($user, (int) $plan->school_class_id);
     }
 
     public function canReviewCoverage(User $user, TopicCoverageLog $log): bool
@@ -136,7 +136,7 @@ class HodScope
             return false;
         }
 
-        return $user->isHoD() && $this->canReviewSubject($user, (int) $log->subject_id);
+        return $user->isHoD() && $this->canReviewClass($user, (int) $log->school_class_id);
     }
 
     public function canReviewHomework(User $user, HomeworkLog $log): bool
@@ -147,7 +147,7 @@ class HodScope
             return false;
         }
 
-        return $user->isHoD() && $this->canReviewSubject($user, (int) $log->subject_id);
+        return $user->isHoD() && $this->canReviewClass($user, (int) $log->school_class_id);
     }
 
     public function canReviewAttendance(User $user, AttendanceLog $log): bool
@@ -168,13 +168,27 @@ class HodScope
             && $this->canReviewSubject($user, $subjectId);
     }
 
+    public function canReviewSchemeClass(User $user, int $classId): bool
+    {
+        if (! $user->isHoD()) {
+            return false;
+        }
+
+        return $this->canReviewClass($user, $classId);
+    }
+
     public function assertCanReviewLessonPlan(User $user, LessonPlan $plan): void
     {
-        abort_unless($this->canReviewLessonPlan($user, $plan), 403, 'You can only review lesson plans in your school and department.');
+        abort_unless($this->canReviewLessonPlan($user, $plan), 403, 'You can only review lesson plans for classes in your school section.');
     }
 
     public function assertCanReviewCoverage(User $user, TopicCoverageLog $log): void
     {
-        abort_unless($this->canReviewCoverage($user, $log), 403, 'You can only verify coverage in your department.');
+        abort_unless($this->canReviewCoverage($user, $log), 403, 'You can only verify coverage for classes in your school section.');
+    }
+
+    public function assertCanReviewSchemeClass(User $user, int $classId): void
+    {
+        abort_unless($this->canReviewSchemeClass($user, $classId), 403, 'You can only review schemes of work for classes in your school section.');
     }
 }

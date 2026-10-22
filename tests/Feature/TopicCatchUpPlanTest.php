@@ -122,6 +122,7 @@ class TopicCatchUpPlanTest extends TestCase
             'academic_session_id' => $session->id,
             'status' => 'active',
         ]);
+        $this->assignSectionHod($school, $users['head_of_department'], $class, 'Basic School '.$token, [$subject->id]);
 
         $scheme = SchemeOfWork::create([
             'subject_id' => $subject->id,
